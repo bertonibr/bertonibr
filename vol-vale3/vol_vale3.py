@@ -4,7 +4,7 @@
 Fontes:
   1. OpLab (api.oplab.com.br) – IV atual e IV Rank oficiais, se houver OPLAB_TOKEN.
   2. Opções.Net.Br – cotações da grade de opções; a IV ATM é calculada aqui via
-     Black-Scholes (spot: Yahoo Finance, taxa: Selic meta do Banco Central).
+     Black-Scholes (spot: B3/brapi/Yahoo, taxa: Selic meta do Banco Central).
 
 Saída: resumo em Markdown em stdout (e em $GITHUB_STEP_SUMMARY) e linha
 adicionada ao CSV de histórico.
@@ -14,6 +14,7 @@ import datetime as dt
 import json
 import math
 import os
+import re
 import sys
 import urllib.request
 
@@ -131,11 +132,14 @@ def opcoes_net_iv(spot, r, today):
         if os.environ.get("DEBUG"):
             print("DEBUG linha exemplo:", json.dumps(rows[:2], ensure_ascii=False), file=sys.stderr)
         t = du / 252
+        # só séries mensais (semanais têm "W<n>" no código) e só negócios do último pregão
+        rows = [x for x in rows if not re.search(r"W\d+$", x[0].split("_")[0])]
+        ultimo = max((x[11] for x in rows if x[11]), default=None)
         by_strike = {}
         for row in rows:
-            # [0]=código, [2]=CALL/PUT, [3]=A/E, [5]=strike, [8]=último, [9]=negócios
+            # [0]=código, [2]=CALL/PUT, [5]=strike, [8]=último, [9]=negócios, [11]=data últ. negócio
             tipo, k, preco, neg = row[2], _num(row[5]), _num(row[8]), _num(row[9])
-            if not k or not preco or not neg:
+            if not k or not preco or not neg or row[11] != ultimo:
                 continue
             iv = implied_vol(tipo == "CALL", preco, spot, k, t, r)
             if iv:
@@ -144,7 +148,7 @@ def opcoes_net_iv(spot, r, today):
         near = sorted(by_strike, key=lambda k: abs(k - spot))[:2]
         ivs = [iv for k in near for iv, _ in by_strike[k].values()]
         if ivs:
-            results.append({"venc": exp, "du": du, "iv": sum(ivs) / len(ivs),
+            results.append({"venc": exp, "du": du, "iv": sum(ivs) / len(ivs), "data": ultimo,
                             "series": [c for k in near for _, c in by_strike[k].values()]})
         if len(results) == 2:
             break
@@ -193,9 +197,9 @@ def main():
             raise RuntimeError(f"opcoes.net.br: {e}") from e
         out += ["", f"**Opções.Net.Br (cálculo Black-Scholes ATM):** IV ~21 d.u. **{iv21 * 100:.2f}%**",
                 "", f"Spot {TICKER}: R$ {s:.2f} ({fonte_spot}) · Selic: {r * 100:.2f}%", "",
-                "| Vencimento | Dias úteis | IV ATM | Séries |", "|---|---|---|---|"]
+                "| Vencimento | Dias úteis | IV ATM | Séries | Últ. negócio |", "|---|---|---|---|---|"]
         for x in res:
-            out.append(f"| {x['venc']:%d/%m/%Y} | {x['du']} | {x['iv'] * 100:.2f}% | {', '.join(x['series'])} |")
+            out.append(f"| {x['venc']:%d/%m/%Y} | {x['du']} | {x['iv'] * 100:.2f}% | {', '.join(x['series'])} | {x['data']} |")
         row.update(iv_atm_21du=round(iv21 * 100, 2), spot=s, selic=round(r * 100, 2))
         ok = True
     except Exception as e:  # noqa: BLE001
