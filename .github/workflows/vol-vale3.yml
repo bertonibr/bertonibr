@@ -1,0 +1,66 @@
+name: Volatilidade implícita VALE3
+
+on:
+  schedule:
+    - cron: "0 15 * * 1-5"   # 12:00 BRT (UTC-3), dias úteis
+  workflow_dispatch:
+  push:
+    branches: [claude/vale3-implied-volatility-daily-r1v5ju]
+    paths: [vol-vale3/**, .github/workflows/vol-vale3.yml]
+
+permissions:
+  contents: write
+  issues: write
+
+concurrency: vol-vale3
+
+jobs:
+  iv:
+    runs-on: ubuntu-latest
+    env:
+      TG_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Calcular IV
+        env:
+          OPLAB_TOKEN: ${{ secrets.OPLAB_TOKEN }}
+          REPORT_FILE: ${{ runner.temp }}/relatorio.md
+          DEBUG: ${{ github.event_name == 'push' && '1' || '' }}
+        run: python vol-vale3/vol_vale3.py
+
+      - name: Salvar histórico
+        if: github.event_name != 'push'
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add vol-vale3/historico.csv
+          git commit -m "IV VALE3 $(TZ=America/Sao_Paulo date +%F)" || exit 0
+          git push
+
+      - name: Notificar via issue (gera e-mail/push do GitHub)
+        if: github.event_name != 'push'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPORT: ${{ runner.temp }}/relatorio.md
+        run: |
+          gh label create vol-vale3 --color 1f6feb --force >/dev/null
+          for n in $(gh issue list --label vol-vale3 --state open --json number -q '.[].number'); do
+            gh issue close "$n" >/dev/null
+          done
+          gh issue create --label vol-vale3 --assignee "${{ github.repository_owner }}" \
+            --title "IV VALE3 – $(TZ=America/Sao_Paulo date +%d/%m/%Y)" --body-file "$REPORT"
+
+      - name: Notificar via Telegram (opcional)
+        if: github.event_name != 'push' && env.TG_TOKEN != ''
+        env:
+          TG_CHAT: ${{ secrets.TELEGRAM_CHAT_ID }}
+          REPORT: ${{ runner.temp }}/relatorio.md
+        run: |
+          curl -sS "https://api.telegram.org/bot${TG_TOKEN}/sendMessage" \
+            --data-urlencode "chat_id=${TG_CHAT}" \
+            --data-urlencode "text=$(sed 's/[*_#|]//g' "$REPORT")" >/dev/null
