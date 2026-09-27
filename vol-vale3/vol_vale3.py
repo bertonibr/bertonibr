@@ -33,10 +33,23 @@ def get_json(url, headers=None):
 
 # ---------- dados de mercado ----------
 
-def spot_yahoo():
-    d = get_json(f"https://query1.finance.yahoo.com/v8/finance/chart/{TICKER}.SA"
-                 "?interval=1d&range=5d")
-    return float(d["chart"]["result"][0]["meta"]["regularMarketPrice"])
+def spot():
+    """Preço da ação: B3 → brapi → Yahoo (primeira que responder)."""
+    fontes = [
+        ("B3", f"https://cotacao.b3.com.br/mds/api/v1/instrumentQuotation/{TICKER}",
+         lambda d: d["Trad"][0]["scty"]["SctyQtn"]["curPrc"]),
+        ("brapi", f"https://brapi.dev/api/quote/{TICKER}",
+         lambda d: d["results"][0]["regularMarketPrice"]),
+        ("Yahoo", f"https://query2.finance.yahoo.com/v8/finance/chart/{TICKER}.SA?interval=1d&range=5d",
+         lambda d: d["chart"]["result"][0]["meta"]["regularMarketPrice"]),
+    ]
+    erros = []
+    for nome, url, f in fontes:
+        try:
+            return float(f(get_json(url))), nome
+        except Exception as e:  # noqa: BLE001
+            erros.append(f"{nome}: {e}")
+    raise RuntimeError("spot indisponível (" + "; ".join(erros) + ")")
 
 
 def selic_bcb():
@@ -169,15 +182,21 @@ def main():
             out.append(f"_OpLab indisponível: {e}_")
 
     try:
-        spot = spot_yahoo()
-        r = selic_bcb()
-        res, iv21 = opcoes_net_iv(spot, r, today)
+        s, fonte_spot = spot()
+        try:
+            r = selic_bcb()
+        except Exception as e:  # noqa: BLE001
+            raise RuntimeError(f"Selic BCB: {e}") from e
+        try:
+            res, iv21 = opcoes_net_iv(s, r, today)
+        except Exception as e:  # noqa: BLE001
+            raise RuntimeError(f"opcoes.net.br: {e}") from e
         out += ["", f"**Opções.Net.Br (cálculo Black-Scholes ATM):** IV ~21 d.u. **{iv21 * 100:.2f}%**",
-                "", f"Spot {TICKER}: R$ {spot:.2f} · Selic: {r * 100:.2f}%", "",
+                "", f"Spot {TICKER}: R$ {s:.2f} ({fonte_spot}) · Selic: {r * 100:.2f}%", "",
                 "| Vencimento | Dias úteis | IV ATM | Séries |", "|---|---|---|---|"]
         for x in res:
             out.append(f"| {x['venc']:%d/%m/%Y} | {x['du']} | {x['iv'] * 100:.2f}% | {', '.join(x['series'])} |")
-        row.update(iv_atm_21du=round(iv21 * 100, 2), spot=spot, selic=round(r * 100, 2))
+        row.update(iv_atm_21du=round(iv21 * 100, 2), spot=s, selic=round(r * 100, 2))
         ok = True
     except Exception as e:  # noqa: BLE001
         out.append(f"_Opções.Net.Br indisponível: {e}_")
