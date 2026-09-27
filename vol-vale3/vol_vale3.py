@@ -16,6 +16,8 @@ import math
 import os
 import re
 import sys
+import time
+import urllib.error
 import urllib.request
 
 TICKER = "VALE3"
@@ -26,10 +28,16 @@ BRT = dt.timezone(dt.timedelta(hours=-3))
 HIST = os.path.join(os.path.dirname(os.path.abspath(__file__)), "historico.csv")
 
 
-def get_json(url, headers=None):
+def get_json(url, headers=None, tentativas=4):
     req = urllib.request.Request(url, headers={**UA, **(headers or {})})
-    with urllib.request.urlopen(req, timeout=30) as r:
-        return json.loads(r.read().decode("utf-8"))
+    for i in range(tentativas):
+        try:
+            with urllib.request.urlopen(req, timeout=30) as r:
+                return json.loads(r.read().decode("utf-8"))
+        except urllib.error.HTTPError as e:
+            if e.code != 429 or i == tentativas - 1:
+                raise
+            time.sleep(5 * 2 ** i)  # 429: espera 5s, 10s, 20s
 
 
 # ---------- dados de mercado ----------
@@ -114,11 +122,17 @@ def _num(x):
         return None
 
 
+def is_mensal(d):
+    """Vencimento mensal = 3ª sexta-feira (ou a quinta anterior, se feriado)."""
+    return (d.weekday() == 4 and 15 <= d.day <= 21) or (d.weekday() == 3 and 14 <= d.day <= 20)
+
+
 def opcoes_net_iv(spot, r, today):
     base = "https://opcoes.net.br/listaopcoes/completa"
     meta = get_json(f"{base}?idAcao={TICKER}&listarVencimentos=true&cotacoes=true")
     venc = [v["value"] for v in meta["data"]["vencimentos"]]
-    venc = sorted(v for v in venc if dt.date.fromisoformat(v[:10]) > today)
+    venc = sorted(v for v in venc if dt.date.fromisoformat(v[:10]) > today
+                  and is_mensal(dt.date.fromisoformat(v[:10])))
 
     results = []
     for v in venc:
@@ -126,6 +140,7 @@ def opcoes_net_iv(spot, r, today):
         du = business_days(today, exp)
         if du < 5:  # vencimento muito próximo distorce a IV
             continue
+        time.sleep(2)
         d = get_json(f"{base}?idLista=ML&idAcao={TICKER}&listarVencimentos=false"
                      f"&cotacoes=true&vencimentos={v}")
         rows = d["data"]["cotacoesOpcoes"]
