@@ -35,6 +35,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.toMutableStateList
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.text.input.KeyboardType
@@ -59,7 +60,7 @@ private data class Linha(
 /** Confere o que o OCR encontrou antes de salvar. */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun RevisaoScreen(leitura: Leitura, onSalvar: (List<Recomendacao>) -> Unit, onCancelar: () -> Unit) {
+fun RevisaoScreen(leitura: Leitura, onSalvar: (List<Recomendacao>, Boolean) -> Unit, onCancelar: () -> Unit) {
     val ext = leitura.extracao
     var corretora by remember { mutableStateOf(ext.corretora ?: "") }
     var data by remember { mutableStateOf(LocalDate.now().br()) }
@@ -69,6 +70,8 @@ fun RevisaoScreen(leitura: Leitura, onSalvar: (List<Recomendacao>) -> Unit, onCa
             .toMutableStateList()
     }
     var verTexto by remember { mutableStateOf(false) }
+    var substituir by remember { mutableStateOf(leitura.substituir) }
+    val abrirLink = LocalUriHandler.current
 
     val dataOk = lerDataBr(data)
     val marcadas = linhas.filter { it.marcada }
@@ -87,6 +90,7 @@ fun RevisaoScreen(leitura: Leitura, onSalvar: (List<Recomendacao>) -> Unit, onCa
                             marcadas.map {
                                 Recomendacao(dataOk!!, corretora.trim(), it.ticker.trim().uppercase(), it.tipo, it.alvoNum, fonte.trim())
                             },
+                            substituir,
                         )
                     }) { Text("Salvar (${marcadas.size})") }
                 },
@@ -134,6 +138,20 @@ fun RevisaoScreen(leitura: Leitura, onSalvar: (List<Recomendacao>) -> Unit, onCa
                         singleLine = true,
                         modifier = Modifier.weight(1.4f),
                     )
+                }
+            }
+            item {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Checkbox(checked = substituir, onCheckedChange = { substituir = it })
+                    Text(
+                        "Substituir as recomendações anteriores desta corretora (ações que saíram da carteira deixam de contar)",
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                }
+            }
+            leitura.url?.let { url ->
+                item {
+                    TextButton(onClick = { runCatching { abrirLink.openUri(url) } }) { Text("Abrir a página original") }
                 }
             }
             if (linhas.isNotEmpty()) {

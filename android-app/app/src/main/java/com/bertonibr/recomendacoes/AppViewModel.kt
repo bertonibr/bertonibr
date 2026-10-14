@@ -13,6 +13,7 @@ import com.bertonibr.recomendacoes.data.Cotacoes
 import com.bertonibr.recomendacoes.data.Csv
 import com.bertonibr.recomendacoes.data.Extracao
 import com.bertonibr.recomendacoes.data.Extrator
+import com.bertonibr.recomendacoes.data.Genial
 import com.bertonibr.recomendacoes.data.IBOVESPA
 import com.bertonibr.recomendacoes.data.Leitor
 import com.bertonibr.recomendacoes.data.Recomendacao
@@ -27,6 +28,7 @@ import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withContext
 import java.io.File
+import java.time.YearMonth
 
 sealed interface EstadoGrafico {
     data object Carregando : EstadoGrafico
@@ -34,7 +36,13 @@ sealed interface EstadoGrafico {
     data class Erro(val ticker: String, val mensagem: String) : EstadoGrafico
 }
 
-data class Leitura(val extracao: Extracao, val nomeArquivo: String?)
+data class Leitura(
+    val extracao: Extracao,
+    val nomeArquivo: String?,
+    val substituir: Boolean = false,
+    val url: String? = null,
+    val mesGenial: String? = null,
+)
 
 sealed interface EstadoLeitura {
     data object Nada : EstadoLeitura
@@ -68,6 +76,13 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     var errosConsenso by mutableStateOf<Map<String, String>>(emptyMap())
         private set
 
+    private val prefs = app.getSharedPreferences("app", android.content.Context.MODE_PRIVATE)
+    var genialImportado by mutableStateOf(prefs.getString("genial_mes", null))
+        private set
+    var genialDisponivel by mutableStateOf<Genial.Carteira?>(null)
+        private set
+    private var verificouGenial = false
+
     private var job: Job? = null
     private var jobLeitura: Job? = null
     private var jobAnalistas: Job? = null
@@ -90,6 +105,62 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
                 throw e
             } catch (e: Exception) {
                 EstadoLeitura.Erro(e.message ?: e.javaClass.simpleName)
+            }
+        }
+    }
+
+    /** Salva o que foi revisado; se pedido, apaga antes as recomendações antigas da mesma corretora. */
+    fun salvarLeitura(leitura: Leitura, novas: List<Recomendacao>, substituir: Boolean) {
+        val corretoras = novas.map { it.corretora }.toSet()
+        val base = if (substituir) recs.filter { it.corretora !in corretoras } else recs
+        atualizar((base + novas).sortedByDescending { it.data })
+        leitura.mesGenial?.let {
+            prefs.edit().putString("genial_mes", it).apply()
+            genialImportado = it
+            genialDisponivel = null
+        }
+        fecharLeitura()
+    }
+
+    private fun leituraGenial(c: Genial.Carteira) = Leitura(
+        c.extracao,
+        "Carteira recomendada de ações – ${c.rotulo}",
+        substituir = true,
+        url = c.url,
+        mesGenial = c.mes.toString(),
+    )
+
+    /** Busca agora a carteira da Genial e abre a revisão. */
+    fun buscarGenial() {
+        genialDisponivel?.let {
+            leitura = EstadoLeitura.Pronto(leituraGenial(it))
+            return
+        }
+        jobLeitura?.cancel()
+        leitura = EstadoLeitura.Lendo("Conectando à Genial…")
+        jobLeitura = viewModelScope.launch {
+            leitura = try {
+                EstadoLeitura.Pronto(leituraGenial(Genial.buscar(getApplication()) { leitura = EstadoLeitura.Lendo(it) }))
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                EstadoLeitura.Erro("Genial: ${e.message ?: e.javaClass.simpleName}")
+            }
+        }
+    }
+
+    /** Ao abrir o app, verifica em segundo plano se há carteira nova da Genial ainda não importada. */
+    fun verificarGenial() {
+        if (verificouGenial || genialImportado == YearMonth.now().toString()) return
+        verificouGenial = true
+        viewModelScope.launch {
+            try {
+                val c = Genial.buscar(getApplication()) {}
+                if (c.mes.toString() != genialImportado && c.extracao.itens.isNotEmpty()) genialDisponivel = c
+            } catch (e: CancellationException) {
+                throw e
+            } catch (_: Exception) {
+                // silencioso: o usuário pode buscar manualmente
             }
         }
     }

@@ -98,6 +98,28 @@ object Extrator {
         return Extracao(corretora(texto.toString()), unicos, texto.toString())
     }
 
+    private val SAIDA = Regex("\\b(sai|saem|sairam|saida|saidas|retirad\\w*|exclu\\w*|remov\\w*|deixa\\w*)\\b")
+
+    /**
+     * Extrai de texto já convertido de HTML: células separadas por " | " viram colunas.
+     * Se houver tabela com 3+ tickers, usa só a tabela; senão ignora linhas de ações que "saíram".
+     */
+    fun extrairTexto(texto: String): Extracao {
+        val linhas = texto.lines().map { it.trim() }.filter { it.isNotBlank() }
+        val tabela = linhas.filter { '|' in it }
+        val usar = if (tabela.flatMap { tickers(it) }.distinct().size >= 3) {
+            linhas.filter { '|' in it || tickers(it).isEmpty() }
+        } else {
+            linhas.filterNot { tickers(it).isNotEmpty() && SAIDA.containsMatchIn(normalizar(it)) }
+        }
+        val trechos = usar.flatMapIndexed { y, linha ->
+            linha.split('|').map { it.trim() }.filter { it.isNotEmpty() }.mapIndexed { x, celula ->
+                Trecho(celula, x * 100f, y * 20f, x * 100f + 90f, y * 20f + 10f)
+            }
+        }
+        return extrair(listOf(trechos)).copy(textoCompleto = texto)
+    }
+
     fun tickers(texto: String): List<String> =
         TICKER.findAll(texto)
             .filter { it.groupValues[2].toInt() in SUFIXOS }

@@ -60,9 +60,11 @@ import androidx.core.content.FileProvider
 import java.io.File
 import com.bertonibr.recomendacoes.AppViewModel
 import com.bertonibr.recomendacoes.data.Consenso
+import com.bertonibr.recomendacoes.data.Genial
 import com.bertonibr.recomendacoes.data.TIPOS
 import com.bertonibr.recomendacoes.data.consenso
 import java.time.Instant
+import java.time.YearMonth
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 
@@ -126,6 +128,7 @@ fun ListaScreen(vm: AppViewModel, onAbrir: (String) -> Unit) {
         (if (aba == 0) lista.none { it.ticker == q } else rankingAnalistas.none { it.ticker == q })
 
     LaunchedEffect(aba) { if (aba == 1) vm.atualizarAnalistas() }
+    LaunchedEffect(Unit) { vm.verificarGenial() }
 
     Scaffold(
         topBar = {
@@ -152,6 +155,10 @@ fun ListaScreen(vm: AppViewModel, onAbrir: (String) -> Unit) {
             Box {
                 FloatingActionButton(onClick = { menuAdicionar = true }) { Icon(Icons.Default.Add, "Adicionar recomendação") }
                 DropdownMenu(expanded = menuAdicionar, onDismissRequest = { menuAdicionar = false }) {
+                    DropdownMenuItem(text = { Text("Carteira da Genial (automático)") }, onClick = {
+                        menuAdicionar = false
+                        vm.buscarGenial()
+                    })
                     DropdownMenuItem(text = { Text("Tirar foto") }, onClick = {
                         menuAdicionar = false
                         runCatching { tirarFoto.launch(fotoUri) }
@@ -233,6 +240,7 @@ fun ListaScreen(vm: AppViewModel, onAbrir: (String) -> Unit) {
                 }
             }
             if (aba == 0) {
+                item { CartaoGenial(vm) }
                 item {
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         Resumo("Ações", lista.size, MaterialTheme.colorScheme.onSurface, Modifier.weight(1f))
@@ -307,6 +315,29 @@ fun ListaScreen(vm: AppViewModel, onAbrir: (String) -> Unit) {
             },
             onFechar = { nova = false },
         )
+    }
+}
+
+@Composable
+private fun CartaoGenial(vm: AppViewModel) {
+    val disponivel = vm.genialDisponivel
+    val importado = vm.genialImportado?.let { runCatching { YearMonth.parse(it) }.getOrNull() }
+    OutlinedCard(onClick = { vm.buscarGenial() }, modifier = Modifier.fillMaxWidth()) {
+        Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
+            Column(Modifier.weight(1f)) {
+                Text("Carteira Genial Investimentos", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
+                Text(
+                    when {
+                        disponivel != null -> "Nova carteira de ${disponivel.rotulo}: ${disponivel.extracao.itens.size} ações. Toque para revisar e importar."
+                        importado != null -> "Carteira de ${Genial.rotuloMes(importado)} importada. Toque para buscar de novo."
+                        else -> "Toque para buscar a carteira recomendada de ações do mês."
+                    },
+                    style = MaterialTheme.typography.bodySmall,
+                    color = if (disponivel != null) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            Icon(Icons.Default.Refresh, null)
+        }
     }
 }
 

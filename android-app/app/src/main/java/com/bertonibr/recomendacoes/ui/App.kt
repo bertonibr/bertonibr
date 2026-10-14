@@ -38,10 +38,9 @@ fun App(vm: AppViewModel = viewModel()) {
     if (leitura is EstadoLeitura.Pronto) {
         RevisaoScreen(
             leitura.leitura,
-            onSalvar = {
-                vm.adicionarVarias(it)
-                vm.fecharLeitura()
-                Toast.makeText(ctx, "${it.size} recomendações salvas", Toast.LENGTH_LONG).show()
+            onSalvar = { lista, substituir ->
+                vm.salvarLeitura(leitura.leitura, lista, substituir)
+                Toast.makeText(ctx, "${lista.size} recomendações salvas", Toast.LENGTH_LONG).show()
             },
             onCancelar = vm::fecharLeitura,
         )

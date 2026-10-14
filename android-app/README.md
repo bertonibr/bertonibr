@@ -12,6 +12,7 @@ O APK é compilado automaticamente pelo GitHub Actions (`.github/workflows/andro
 
 ## Funcionalidades
 
+- **Carteira Genial Investimentos (automática)**: ao abrir o app, busca no site Genial Analisa a carteira recomendada de ações do mês; se houver uma nova, aparece um aviso para revisar e importar (substituindo a carteira anterior da Genial). Também em **+ → Carteira da Genial**.
 - **Aba Analistas (automática)**: consenso de analistas do Yahoo Finance para as principais ações do Ibovespa + as suas — recomendação (compra forte → venda), nº de analistas, preço-alvo médio e potencial. Atualiza sozinho a cada 12 h (ou no botão ↻).
 - **Detalhe da ação**: distribuição das recomendações, preço-alvo médio/mín/máx (linha roxa no gráfico) e mudanças recentes por banco (elevou/rebaixou, alvo anterior → novo).
 - **Aba Minhas**: pesquisa por ticker, filtros Compra/Neutro/Venda e por corretora, consenso por ação (recomendação mais recente de cada corretora) e preço-alvo médio.
