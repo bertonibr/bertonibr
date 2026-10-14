@@ -266,7 +266,14 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         grafico = EstadoGrafico.Carregando
         job = viewModelScope.launch {
             grafico = try {
-                val cot = Yahoo.historico(ticker, periodo)
+                // Baixa histórico a mais para as médias móveis já começarem completas no período exibido
+                val faixa = when (periodo) {
+                    "1mo", "3mo", "6mo" -> "1y"
+                    "1y" -> "2y"
+                    "2y" -> "5y"
+                    else -> "10y"
+                }
+                val cot = Yahoo.historico(ticker, faixa)
                 cache[chave] = System.currentTimeMillis() to cot
                 EstadoGrafico.Ok(ticker, periodo, cot)
             } catch (e: CancellationException) {

@@ -67,3 +67,24 @@ class DadosTest {
         assertEquals(listOf(null, 1.5, 2.5, 3.5), mediaMovel(c, 2))
     }
 }
+
+class SanitizarTest {
+    private val d = java.time.LocalDate.of(2026, 10, 13)
+
+    @Test
+    fun minimaZeradaViraCorpoDoCandle() {
+        val c = com.bertonibr.recomendacoes.data.sanitizar(d, 16.2, 16.4, 0.0, 15.99, 100)!!
+        assertEquals(15.99, c.minima, 1e-9)
+        assertEquals(16.4, c.maxima, 1e-9)
+    }
+
+    @Test
+    fun valoresAbsurdosEFechamentoInvalido() {
+        val c = com.bertonibr.recomendacoes.data.sanitizar(d, Double.NaN, 99.0, 1.0, 16.0, -5)!!
+        assertEquals(16.0, c.abertura, 1e-9)
+        assertEquals(16.0, c.maxima, 1e-9)
+        assertEquals(16.0, c.minima, 1e-9)
+        assertEquals(0L, c.volume)
+        assertNull(com.bertonibr.recomendacoes.data.sanitizar(d, 1.0, 1.0, 1.0, 0.0, 0))
+    }
+}

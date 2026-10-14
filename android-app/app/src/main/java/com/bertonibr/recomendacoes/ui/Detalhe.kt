@@ -43,7 +43,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.bertonibr.recomendacoes.AppViewModel
 import com.bertonibr.recomendacoes.EstadoGrafico
-import com.bertonibr.recomendacoes.data.Cotacoes
+import com.bertonibr.recomendacoes.data.Candle
+import java.time.LocalDate
 import com.bertonibr.recomendacoes.data.Recomendacao
 import com.bertonibr.recomendacoes.data.alvoMedio
 import com.bertonibr.recomendacoes.data.tickerYahoo
@@ -92,14 +93,17 @@ fun DetalheScreen(vm: AppViewModel, ticker: String, onVoltar: () -> Unit) {
                 val e = vm.grafico
                 when {
                     e is EstadoGrafico.Ok && e.ticker == ticker && e.periodo == periodo -> {
-                        if (e.cotacoes.candles.size < 2) {
+                        val inicio = inicioPeriodo(periodo)
+                        val visiveis = e.cotacoes.candles.filter { !it.data.isBefore(inicio) }
+                        if (visiveis.size < 2) {
                             Text("Sem cotações para ${e.cotacoes.simbolo}.")
                         } else {
                             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                                Metricas(e.cotacoes, alvo, analistas?.alvoMedio)
+                                Metricas(e.cotacoes.moeda, visiveis, alvo, analistas?.alvoMedio)
                                 Legenda(analistas?.alvoMedio != null)
                                 GraficoCandles(
                                     e.cotacoes.candles,
+                                    inicio,
                                     ultimas,
                                     Modifier.fillMaxWidth().height(340.dp),
                                     alvoConsenso = analistas?.alvoMedio,
@@ -177,13 +181,25 @@ fun DetalheScreen(vm: AppViewModel, ticker: String, onVoltar: () -> Unit) {
     }
 }
 
+private fun inicioPeriodo(periodo: String): LocalDate {
+    val hoje = LocalDate.now()
+    return when (periodo) {
+        "1mo" -> hoje.minusMonths(1)
+        "3mo" -> hoje.minusMonths(3)
+        "6mo" -> hoje.minusMonths(6)
+        "1y" -> hoje.minusYears(1)
+        "2y" -> hoje.minusYears(2)
+        else -> hoje.minusYears(5)
+    }
+}
+
 @Composable
-private fun Metricas(c: Cotacoes, alvo: Double?, alvoAnalistas: Double?) {
-    val ultimo = c.candles.last().fechamento
-    val anterior = c.candles[c.candles.size - 2].fechamento
-    val inicio = c.candles.first().fechamento
+private fun Metricas(moeda: String, candles: List<Candle>, alvo: Double?, alvoAnalistas: Double?) {
+    val ultimo = candles.last().fechamento
+    val anterior = candles[candles.size - 2].fechamento
+    val inicio = candles.first().fechamento
     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        Metrica("Último ${c.moeda}".trim(), ultimo.fmt(), pct((ultimo / anterior - 1) * 100), Modifier.weight(1f))
+        Metrica("Último $moeda".trim(), ultimo.fmt(), pct((ultimo / anterior - 1) * 100), Modifier.weight(1f))
         Metrica("No período", pct((ultimo / inicio - 1) * 100), null, Modifier.weight(1f))
         if (alvo != null) {
             Metrica("Alvo corretoras", alvo.fmt(), pct((alvo / ultimo - 1) * 100) + " pot.", Modifier.weight(1f))

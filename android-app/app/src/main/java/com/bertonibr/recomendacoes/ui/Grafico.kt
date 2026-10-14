@@ -25,6 +25,7 @@ import androidx.compose.ui.unit.dp
 import com.bertonibr.recomendacoes.data.Candle
 import com.bertonibr.recomendacoes.data.Recomendacao
 import com.bertonibr.recomendacoes.data.mediaMovel
+import java.time.LocalDate
 import java.time.format.DateTimeFormatter
 import kotlin.math.max
 import kotlin.math.min
@@ -38,13 +39,16 @@ private val DATA_CURTA = DateTimeFormatter.ofPattern("dd/MM/yy")
 /** Candles + médias móveis + volume + linhas de preço-alvo. Toque ou arraste para ver os valores do dia. */
 @Composable
 fun GraficoCandles(
-    candles: List<Candle>,
+    historico: List<Candle>,
+    inicio: LocalDate,
     recs: List<Recomendacao>,
     modifier: Modifier = Modifier,
     alvoConsenso: Double? = null,
 ) {
-    val mm20 = remember(candles) { mediaMovel(candles, 20) }
-    val mm50 = remember(candles) { mediaMovel(candles, 50) }
+    val i0 = remember(historico, inicio) { historico.indexOfFirst { !it.data.isBefore(inicio) }.coerceAtLeast(0) }
+    val candles = remember(historico, i0) { historico.subList(i0, historico.size) }
+    val mm20 = remember(historico, i0) { mediaMovel(historico, 20).drop(i0) }
+    val mm50 = remember(historico, i0) { mediaMovel(historico, 50).drop(i0) }
     val medidor = rememberTextMeasurer()
     val corTexto = MaterialTheme.colorScheme.onSurfaceVariant
     val corGrade = MaterialTheme.colorScheme.outlineVariant
@@ -78,8 +82,9 @@ fun GraficoCandles(
         val hVol = hTotal - topoVol
 
         val alvos = recs.mapNotNull { it.precoAlvo } + listOfNotNull(alvoConsenso)
-        var minP = min(candles.minOf { it.minima }, alvos.minOrNull() ?: Double.MAX_VALUE)
-        var maxP = max(candles.maxOf { it.maxima }, alvos.maxOrNull() ?: -Double.MAX_VALUE)
+        val medias = (mm20 + mm50).filterNotNull()
+        var minP = minOf(candles.minOf { it.minima }, alvos.minOrNull() ?: Double.MAX_VALUE, medias.minOrNull() ?: Double.MAX_VALUE)
+        var maxP = maxOf(candles.maxOf { it.maxima }, alvos.maxOrNull() ?: -Double.MAX_VALUE, medias.maxOrNull() ?: -Double.MAX_VALUE)
         val folga = ((maxP - minP) * 0.06).coerceAtLeast(0.01)
         minP -= folga
         maxP += folga
@@ -150,7 +155,7 @@ fun GraficoCandles(
             val yy = y(a)
             drawLine(CorConsenso, Offset(0f, yy), Offset(w, yy), 1.5.dp.toPx(), pathEffect = tracejado)
             val txt = medidor.measure("Consenso analistas ${a.fmt()}", estilo.copy(color = CorConsenso))
-            drawText(txt, topLeft = Offset(max(0f, w - txt.size.width - 4.dp.toPx()), (yy + 2f).coerceAtMost(hPreco - txt.size.height)))
+            drawText(txt, topLeft = Offset(4.dp.toPx(), (yy + 2f).coerceAtMost(hPreco - txt.size.height)))
         }
 
         // Datas no rodapé

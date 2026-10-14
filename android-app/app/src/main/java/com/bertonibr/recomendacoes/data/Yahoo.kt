@@ -37,6 +37,20 @@ fun mediaMovel(candles: List<Candle>, n: Int): List<Double?> {
     }
 }
 
+/**
+ * O Yahoo às vezes devolve mínima/máxima zeradas ou absurdas (principalmente no pregão em andamento).
+ * Valores inválidos são substituídos pelo corpo do candle; candles sem fechamento válido são descartados.
+ */
+fun sanitizar(data: LocalDate, abertura: Double, maxima: Double, minima: Double, fechamento: Double, volume: Long): Candle? {
+    if (fechamento.isNaN() || fechamento <= 0) return null
+    val ab = abertura.takeIf { !it.isNaN() && it > 0 && it in fechamento * 0.5..fechamento * 1.5 } ?: fechamento
+    val topo = maxOf(ab, fechamento)
+    val base = minOf(ab, fechamento)
+    val max = maxima.takeIf { !it.isNaN() && it >= topo && it <= topo * 1.5 } ?: topo
+    val min = minima.takeIf { !it.isNaN() && it > 0 && it <= base && it >= base * 0.5 } ?: base
+    return Candle(data, ab, max, min, fechamento, volume.coerceAtLeast(0))
+}
+
 /** Cotações (endpoint público de gráficos) e consenso de analistas (quoteSummary, exige cookie + crumb). */
 object Yahoo {
     private const val UA = "Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Mobile Safari/537.36"
@@ -115,12 +129,12 @@ object Yahoo {
         val v = q.getJSONArray("volume")
 
         val candles = (0 until (ts?.length() ?: 0)).mapNotNull { i ->
-            if (o.isNull(i) || h.isNull(i) || l.isNull(i) || c.isNull(i)) return@mapNotNull null
-            Candle(
+            if (c.isNull(i)) return@mapNotNull null
+            sanitizar(
                 data = Instant.ofEpochSecond(ts!!.getLong(i)).atZone(fuso).toLocalDate(),
-                abertura = o.getDouble(i),
-                maxima = h.getDouble(i),
-                minima = l.getDouble(i),
+                abertura = o.optDouble(i, Double.NaN),
+                maxima = h.optDouble(i, Double.NaN),
+                minima = l.optDouble(i, Double.NaN),
                 fechamento = c.getDouble(i),
                 volume = v.optLong(i, 0L),
             )
