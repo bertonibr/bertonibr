@@ -2,6 +2,7 @@ package com.bertonibr.recomendacoes.ui
 
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
@@ -50,6 +51,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.unit.dp
+import androidx.core.content.FileProvider
+import java.io.File
 import com.bertonibr.recomendacoes.AppViewModel
 import com.bertonibr.recomendacoes.data.Consenso
 import com.bertonibr.recomendacoes.data.TIPOS
@@ -65,6 +68,21 @@ fun ListaScreen(vm: AppViewModel, onAbrir: (String) -> Unit) {
     var menu by remember { mutableStateOf(false) }
     var menuCorretora by remember { mutableStateOf(false) }
     var nova by remember { mutableStateOf(false) }
+    var menuAdicionar by remember { mutableStateOf(false) }
+
+    val fotoUri = remember {
+        val arquivo = File(ctx.cacheDir, "fotos").apply { mkdirs() }.resolve("foto.jpg")
+        FileProvider.getUriForFile(ctx, ctx.packageName + ".arquivos", arquivo)
+    }
+    val tirarFoto = rememberLauncherForActivityResult(ActivityResultContracts.TakePicture()) { ok ->
+        if (ok) vm.lerArquivo(fotoUri)
+    }
+    val escolherImagem = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
+        if (uri != null) vm.lerArquivo(uri)
+    }
+    val escolherPdf = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        if (uri != null) vm.lerArquivo(uri)
+    }
 
     val importar = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         if (uri != null) {
@@ -115,7 +133,28 @@ fun ListaScreen(vm: AppViewModel, onAbrir: (String) -> Unit) {
             )
         },
         floatingActionButton = {
-            FloatingActionButton(onClick = { nova = true }) { Icon(Icons.Default.Add, "Adicionar recomendação") }
+            Box {
+                FloatingActionButton(onClick = { menuAdicionar = true }) { Icon(Icons.Default.Add, "Adicionar recomendação") }
+                DropdownMenu(expanded = menuAdicionar, onDismissRequest = { menuAdicionar = false }) {
+                    DropdownMenuItem(text = { Text("Tirar foto") }, onClick = {
+                        menuAdicionar = false
+                        runCatching { tirarFoto.launch(fotoUri) }
+                            .onFailure { Toast.makeText(ctx, "Câmera indisponível", Toast.LENGTH_LONG).show() }
+                    })
+                    DropdownMenuItem(text = { Text("Imagem ou print da galeria") }, onClick = {
+                        menuAdicionar = false
+                        escolherImagem.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
+                    })
+                    DropdownMenuItem(text = { Text("Ler PDF") }, onClick = {
+                        menuAdicionar = false
+                        escolherPdf.launch(arrayOf("application/pdf"))
+                    })
+                    DropdownMenuItem(text = { Text("Digitar") }, onClick = {
+                        menuAdicionar = false
+                        nova = true
+                    })
+                }
+            }
         },
     ) { pad ->
         LazyColumn(
@@ -194,7 +233,7 @@ fun ListaScreen(vm: AppViewModel, onAbrir: (String) -> Unit) {
             if (lista.isEmpty() && q.isEmpty()) {
                 item {
                     Text(
-                        "Nenhuma recomendação. Toque em + para adicionar ou importe um CSV pelo menu ⋮.",
+                        "Nenhuma recomendação. Toque em + para ler uma foto/PDF de carteira recomendada ou digitar.",
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }

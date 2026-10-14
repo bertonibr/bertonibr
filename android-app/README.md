@@ -15,7 +15,9 @@ O APK é compilado automaticamente pelo GitHub Actions (`.github/workflows/andro
 - **Lista**: pesquisa por ticker, filtros Compra/Neutro/Venda e por corretora, consenso por ação (recomendação mais recente de cada corretora) e preço-alvo médio.
 - **Gráfico**: candles, médias móveis 20/50, volume e linhas de preço-alvo das corretoras; toque ou arraste no gráfico para ver os valores do dia. Períodos de 1 mês a 5 anos.
 - Pesquise qualquer ticker (ex.: `WEGE3`, `AAPL`) para ver o gráfico mesmo sem recomendação cadastrada.
-- **+** adiciona recomendação; a lixeira remove.
+- **+ → Tirar foto / Imagem ou print / Ler PDF**: lê a carteira recomendada ou relatório da corretora com OCR no próprio celular (offline) e encontra tickers, recomendação (compra/neutro/venda, outperform etc.) e preço-alvo. Você revisa antes de salvar.
+- Também dá para **compartilhar** um PDF ou imagem do WhatsApp/e-mail direto para o app ("Ler recomendações").
+- **+ → Digitar** adiciona manualmente; a lixeira remove.
 - **Menu ⋮ → Importar/Exportar CSV**: mesmo formato do app de desktop (`recomendacoes-acoes/dados/recomendacoes.csv`), aceita CSV do Excel com `;`.
 
 Cotações: Yahoo Finance (podem ter atraso). As recomendações iniciais são exemplos fictícios.

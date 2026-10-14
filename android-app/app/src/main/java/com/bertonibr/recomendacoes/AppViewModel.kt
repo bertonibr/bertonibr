@@ -1,6 +1,7 @@
 package com.bertonibr.recomendacoes
 
 import android.app.Application
+import android.net.Uri
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
@@ -8,6 +9,9 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.bertonibr.recomendacoes.data.Cotacoes
 import com.bertonibr.recomendacoes.data.Csv
+import com.bertonibr.recomendacoes.data.Extracao
+import com.bertonibr.recomendacoes.data.Extrator
+import com.bertonibr.recomendacoes.data.Leitor
 import com.bertonibr.recomendacoes.data.Recomendacao
 import com.bertonibr.recomendacoes.data.Repositorio
 import com.bertonibr.recomendacoes.data.Yahoo
@@ -21,6 +25,15 @@ sealed interface EstadoGrafico {
     data class Erro(val ticker: String, val mensagem: String) : EstadoGrafico
 }
 
+data class Leitura(val extracao: Extracao, val nomeArquivo: String?)
+
+sealed interface EstadoLeitura {
+    data object Nada : EstadoLeitura
+    data class Lendo(val etapa: String) : EstadoLeitura
+    data class Pronto(val leitura: Leitura) : EstadoLeitura
+    data class Erro(val mensagem: String) : EstadoLeitura
+}
+
 class AppViewModel(app: Application) : AndroidViewModel(app) {
     private val repo = Repositorio(app)
 
@@ -29,10 +42,38 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     var grafico by mutableStateOf<EstadoGrafico>(EstadoGrafico.Carregando)
         private set
 
+    var leitura by mutableStateOf<EstadoLeitura>(EstadoLeitura.Nada)
+        private set
+
     private var job: Job? = null
+    private var jobLeitura: Job? = null
     private val cache = mutableMapOf<Pair<String, String>, Pair<Long, Cotacoes>>()
 
     fun adicionar(r: Recomendacao) = atualizar((recs + r).sortedByDescending { it.data })
+
+    fun adicionarVarias(novas: List<Recomendacao>) = atualizar((recs + novas).sortedByDescending { it.data })
+
+    /** Lê foto, print ou PDF com OCR e abre a tela de revisão. */
+    fun lerArquivo(uri: Uri) {
+        jobLeitura?.cancel()
+        leitura = EstadoLeitura.Lendo("Abrindo arquivo…")
+        jobLeitura = viewModelScope.launch {
+            leitura = try {
+                val app = getApplication<Application>()
+                val paginas = Leitor.ler(app, uri) { leitura = EstadoLeitura.Lendo(it) }
+                EstadoLeitura.Pronto(Leitura(Extrator.extrair(paginas), Leitor.nomeArquivo(app, uri)))
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                EstadoLeitura.Erro(e.message ?: e.javaClass.simpleName)
+            }
+        }
+    }
+
+    fun fecharLeitura() {
+        jobLeitura?.cancel()
+        leitura = EstadoLeitura.Nada
+    }
 
     fun remover(r: Recomendacao) = atualizar(recs - r)
 
