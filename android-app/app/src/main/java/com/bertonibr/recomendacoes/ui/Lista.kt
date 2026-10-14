@@ -1,0 +1,247 @@
+package com.bertonibr.recomendacoes.ui
+
+import android.widget.Toast
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.ArrowDropDown
+import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.filled.Search
+import androidx.compose.material3.Card
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FilterChip
+import androidx.compose.material3.FloatingActionButton
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedCard
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Text
+import androidx.compose.material3.TopAppBar
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.input.KeyboardCapitalization
+import androidx.compose.ui.unit.dp
+import com.bertonibr.recomendacoes.AppViewModel
+import com.bertonibr.recomendacoes.data.Consenso
+import com.bertonibr.recomendacoes.data.TIPOS
+import com.bertonibr.recomendacoes.data.consenso
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun ListaScreen(vm: AppViewModel, onAbrir: (String) -> Unit) {
+    val ctx = LocalContext.current
+    var busca by rememberSaveable { mutableStateOf("") }
+    var tipos by remember { mutableStateOf(TIPOS.toSet()) }
+    var corretora by remember { mutableStateOf<String?>(null) }
+    var menu by remember { mutableStateOf(false) }
+    var menuCorretora by remember { mutableStateOf(false) }
+    var nova by remember { mutableStateOf(false) }
+
+    val importar = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        if (uri != null) {
+            val r = runCatching {
+                val texto = ctx.contentResolver.openInputStream(uri)!!.bufferedReader().use { it.readText() }
+                vm.importar(texto)
+            }
+            val msg = r.fold({ "$it recomendações importadas" }, { "Erro ao importar: ${it.message}" })
+            Toast.makeText(ctx, msg, Toast.LENGTH_LONG).show()
+        }
+    }
+    val exportar = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("text/csv")) { uri ->
+        if (uri != null) {
+            val r = runCatching {
+                ctx.contentResolver.openOutputStream(uri)!!.use { it.write(vm.exportar().toByteArray()) }
+            }
+            val msg = if (r.isSuccess) "CSV exportado" else "Erro ao exportar: ${r.exceptionOrNull()?.message}"
+            Toast.makeText(ctx, msg, Toast.LENGTH_LONG).show()
+        }
+    }
+
+    val q = busca.trim().uppercase()
+    val filtradas = vm.recs.filter {
+        it.recomendacao in tipos && (corretora == null || it.corretora == corretora) && it.ticker.contains(q)
+    }
+    val lista = consenso(filtradas)
+    val corretoras = vm.recs.map { it.corretora }.distinct().sorted()
+
+    Scaffold(
+        topBar = {
+            TopAppBar(
+                title = { Text("Recomendações") },
+                actions = {
+                    Box {
+                        IconButton(onClick = { menu = true }) { Icon(Icons.Default.MoreVert, "Mais opções") }
+                        DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
+                            DropdownMenuItem(text = { Text("Importar CSV") }, onClick = {
+                                menu = false
+                                importar.launch(arrayOf("text/*", "application/csv", "application/vnd.ms-excel", "application/octet-stream"))
+                            })
+                            DropdownMenuItem(text = { Text("Exportar CSV") }, onClick = {
+                                menu = false
+                                exportar.launch("recomendacoes.csv")
+                            })
+                        }
+                    }
+                },
+            )
+        },
+        floatingActionButton = {
+            FloatingActionButton(onClick = { nova = true }) { Icon(Icons.Default.Add, "Adicionar recomendação") }
+        },
+    ) { pad ->
+        LazyColumn(
+            Modifier.fillMaxSize().padding(pad),
+            contentPadding = PaddingValues(start = 16.dp, top = 8.dp, end = 16.dp, bottom = 88.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            item {
+                OutlinedTextField(
+                    value = busca,
+                    onValueChange = { busca = it },
+                    modifier = Modifier.fillMaxWidth(),
+                    singleLine = true,
+                    placeholder = { Text("Pesquisar ticker (ex.: PETR4, AAPL)") },
+                    leadingIcon = { Icon(Icons.Default.Search, null) },
+                    keyboardOptions = KeyboardOptions(
+                        capitalization = KeyboardCapitalization.Characters,
+                        imeAction = ImeAction.Search,
+                    ),
+                    keyboardActions = KeyboardActions(onSearch = { if (q.isNotEmpty()) onAbrir(q) }),
+                )
+            }
+            item {
+                Row(
+                    Modifier.horizontalScroll(rememberScrollState()),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    TIPOS.forEach { t ->
+                        FilterChip(
+                            selected = t in tipos,
+                            onClick = { tipos = if (t in tipos) tipos - t else tipos + t },
+                            label = { Text(t) },
+                        )
+                    }
+                    Box {
+                        FilterChip(
+                            selected = corretora != null,
+                            onClick = { menuCorretora = true },
+                            label = { Text(corretora ?: "Corretora") },
+                            trailingIcon = { Icon(Icons.Default.ArrowDropDown, null) },
+                        )
+                        DropdownMenu(expanded = menuCorretora, onDismissRequest = { menuCorretora = false }) {
+                            DropdownMenuItem(text = { Text("Todas") }, onClick = {
+                                corretora = null
+                                menuCorretora = false
+                            })
+                            corretoras.forEach { c ->
+                                DropdownMenuItem(text = { Text(c) }, onClick = {
+                                    corretora = c
+                                    menuCorretora = false
+                                })
+                            }
+                        }
+                    }
+                }
+            }
+            item {
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Resumo("Ações", lista.size, MaterialTheme.colorScheme.onSurface, Modifier.weight(1f))
+                    Resumo("Compra", lista.count { it.consenso == "Compra" }, CorCompra, Modifier.weight(1f))
+                    Resumo("Venda", lista.count { it.consenso == "Venda" }, CorVenda, Modifier.weight(1f))
+                }
+            }
+            if (q.isNotEmpty() && lista.none { it.ticker == q }) {
+                item {
+                    OutlinedCard(onClick = { onAbrir(q) }, modifier = Modifier.fillMaxWidth()) {
+                        Text(
+                            "Ver gráfico de $q",
+                            Modifier.padding(16.dp),
+                            style = MaterialTheme.typography.titleMedium,
+                        )
+                    }
+                }
+            }
+            items(lista, key = { it.ticker }) { c -> CartaoConsenso(c) { onAbrir(c.ticker) } }
+            if (lista.isEmpty() && q.isEmpty()) {
+                item {
+                    Text(
+                        "Nenhuma recomendação. Toque em + para adicionar ou importe um CSV pelo menu ⋮.",
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
+        }
+    }
+
+    if (nova) {
+        DialogoNova(
+            onSalvar = {
+                vm.adicionar(it)
+                nova = false
+            },
+            onFechar = { nova = false },
+        )
+    }
+}
+
+@Composable
+private fun Resumo(rotulo: String, valor: Int, cor: Color, modifier: Modifier) {
+    Card(modifier) {
+        Column(Modifier.padding(12.dp)) {
+            Text(rotulo, style = MaterialTheme.typography.labelMedium)
+            Text(
+                valor.toString(),
+                style = MaterialTheme.typography.headlineSmall,
+                color = cor,
+                fontWeight = FontWeight.Bold,
+            )
+        }
+    }
+}
+
+@Composable
+private fun CartaoConsenso(c: Consenso, onClick: () -> Unit) {
+    Card(onClick = onClick, modifier = Modifier.fillMaxWidth()) {
+        Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
+            Column(Modifier.weight(1f)) {
+                Text(c.ticker, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                Text(
+                    "Compra ${c.compra} · Neutro ${c.neutro} · Venda ${c.venda}",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                c.alvoMedio?.let { Text("Alvo médio ${it.fmt()}", style = MaterialTheme.typography.bodySmall) }
+            }
+            Selo(c.consenso)
+        }
+    }
+}

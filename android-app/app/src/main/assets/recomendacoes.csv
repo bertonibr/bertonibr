@@ -1,0 +1,6 @@
+data,corretora,ticker,recomendacao,preco_alvo,fonte
+2026-10-01,Corretora Exemplo A,PETR4,Compra,45.00,Carteira mensal (exemplo)
+2026-10-01,Corretora Exemplo A,VALE3,Compra,72.00,Carteira mensal (exemplo)
+2026-10-01,Corretora Exemplo B,PETR4,Neutro,40.00,Relatório setorial (exemplo)
+2026-10-01,Corretora Exemplo B,MGLU3,Venda,7.50,Relatório (exemplo)
+2026-10-05,Corretora Exemplo C,ITUB4,Compra,42.00,Carteira dividendos (exemplo)
