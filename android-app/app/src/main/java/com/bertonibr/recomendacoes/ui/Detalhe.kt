@@ -58,6 +58,8 @@ fun DetalheScreen(vm: AppViewModel, ticker: String, onVoltar: () -> Unit) {
     var nova by remember { mutableStateOf(false) }
     var remover by remember { mutableStateOf<Recomendacao?>(null) }
     LaunchedEffect(ticker, periodo) { vm.carregarGrafico(ticker, periodo) }
+    LaunchedEffect(ticker) { vm.garantirConsenso(ticker) }
+    val analistas = vm.analistas[ticker]
 
     val recsT = vm.recs.filter { it.ticker == ticker }
     val ultimas = ultimasPorCorretora(recsT)
@@ -94,9 +96,14 @@ fun DetalheScreen(vm: AppViewModel, ticker: String, onVoltar: () -> Unit) {
                             Text("Sem cotações para ${e.cotacoes.simbolo}.")
                         } else {
                             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                                Metricas(e.cotacoes, alvo)
-                                Legenda()
-                                GraficoCandles(e.cotacoes.candles, ultimas, Modifier.fillMaxWidth().height(340.dp))
+                                Metricas(e.cotacoes, alvo, analistas?.alvoMedio)
+                                Legenda(analistas?.alvoMedio != null)
+                                GraficoCandles(
+                                    e.cotacoes.candles,
+                                    ultimas,
+                                    Modifier.fillMaxWidth().height(340.dp),
+                                    alvoConsenso = analistas?.alvoMedio,
+                                )
                             }
                         }
                     }
@@ -125,6 +132,14 @@ fun DetalheScreen(vm: AppViewModel, ticker: String, onVoltar: () -> Unit) {
                         FilterChip(selected = periodo == valor, onClick = { periodo = valor }, label = { Text(rotulo) })
                     }
                 }
+            }
+            item {
+                SecaoConsenso(
+                    analistas,
+                    carregando = ticker in vm.carregandoConsenso,
+                    erro = vm.errosConsenso[ticker],
+                    onTentar = { vm.garantirConsenso(ticker, forcar = true) },
+                )
             }
             item {
                 Text(
@@ -163,7 +178,7 @@ fun DetalheScreen(vm: AppViewModel, ticker: String, onVoltar: () -> Unit) {
 }
 
 @Composable
-private fun Metricas(c: Cotacoes, alvo: Double?) {
+private fun Metricas(c: Cotacoes, alvo: Double?, alvoAnalistas: Double?) {
     val ultimo = c.candles.last().fechamento
     val anterior = c.candles[c.candles.size - 2].fechamento
     val inicio = c.candles.first().fechamento
@@ -171,7 +186,9 @@ private fun Metricas(c: Cotacoes, alvo: Double?) {
         Metrica("Último ${c.moeda}".trim(), ultimo.fmt(), pct((ultimo / anterior - 1) * 100), Modifier.weight(1f))
         Metrica("No período", pct((ultimo / inicio - 1) * 100), null, Modifier.weight(1f))
         if (alvo != null) {
-            Metrica("Alvo médio", alvo.fmt(), pct((alvo / ultimo - 1) * 100) + " pot.", Modifier.weight(1f))
+            Metrica("Alvo corretoras", alvo.fmt(), pct((alvo / ultimo - 1) * 100) + " pot.", Modifier.weight(1f))
+        } else if (alvoAnalistas != null) {
+            Metrica("Alvo analistas", alvoAnalistas.fmt(), pct((alvoAnalistas / ultimo - 1) * 100) + " pot.", Modifier.weight(1f))
         }
     }
 }
@@ -188,11 +205,12 @@ private fun Metrica(rotulo: String, valor: String, variacao: String?, modifier: 
 }
 
 @Composable
-private fun Legenda() {
+private fun Legenda(comConsenso: Boolean) {
     Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
         Text("━ MM20", color = CorMM20, style = MaterialTheme.typography.labelSmall)
         Text("━ MM50", color = CorMM50, style = MaterialTheme.typography.labelSmall)
         Text("╌ preço-alvo", color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.labelSmall)
+        if (comConsenso) Text("╌ consenso", color = CorConsenso, style = MaterialTheme.typography.labelSmall)
     }
 }
 

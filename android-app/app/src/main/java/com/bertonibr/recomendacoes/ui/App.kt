@@ -2,6 +2,7 @@ package com.bertonibr.recomendacoes.ui
 
 import androidx.activity.compose.BackHandler
 import android.widget.Toast
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.padding
@@ -19,6 +20,8 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -73,11 +76,12 @@ fun App(vm: AppViewModel = viewModel()) {
 }
 
 @Composable
-fun Selo(tipo: String) {
-    val cor = corTipo(tipo)
+fun Selo(texto: String, corBase: Color = corTipo(texto)) {
+    // No tema escuro clareia a cor para manter o contraste
+    val cor = if (isSystemInDarkTheme()) lerp(corBase, Color.White, 0.35f) else corBase
     Surface(shape = RoundedCornerShape(50), color = cor.copy(alpha = 0.15f)) {
         Text(
-            tipo,
+            texto,
             Modifier.padding(horizontal = 12.dp, vertical = 4.dp),
             color = cor,
             style = MaterialTheme.typography.labelLarge,

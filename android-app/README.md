@@ -12,7 +12,9 @@ O APK é compilado automaticamente pelo GitHub Actions (`.github/workflows/andro
 
 ## Funcionalidades
 
-- **Lista**: pesquisa por ticker, filtros Compra/Neutro/Venda e por corretora, consenso por ação (recomendação mais recente de cada corretora) e preço-alvo médio.
+- **Aba Analistas (automática)**: consenso de analistas do Yahoo Finance para as principais ações do Ibovespa + as suas — recomendação (compra forte → venda), nº de analistas, preço-alvo médio e potencial. Atualiza sozinho a cada 12 h (ou no botão ↻).
+- **Detalhe da ação**: distribuição das recomendações, preço-alvo médio/mín/máx (linha roxa no gráfico) e mudanças recentes por banco (elevou/rebaixou, alvo anterior → novo).
+- **Aba Minhas**: pesquisa por ticker, filtros Compra/Neutro/Venda e por corretora, consenso por ação (recomendação mais recente de cada corretora) e preço-alvo médio.
 - **Gráfico**: candles, médias móveis 20/50, volume e linhas de preço-alvo das corretoras; toque ou arraste no gráfico para ver os valores do dia. Períodos de 1 mês a 5 anos.
 - Pesquise qualquer ticker (ex.: `WEGE3`, `AAPL`) para ver o gráfico mesmo sem recomendação cadastrada.
 - **+ → Tirar foto / Imagem ou print / Ler PDF**: lê a carteira recomendada ou relatório da corretora com OCR no próprio celular (offline) e encontra tickers, recomendação (compra/neutro/venda, outperform etc.) e preço-alvo. Você revisa antes de salvar.

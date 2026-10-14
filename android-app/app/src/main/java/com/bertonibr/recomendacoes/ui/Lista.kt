@@ -22,6 +22,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.ArrowDropDown
 import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.Card
 import androidx.compose.material3.DropdownMenu
@@ -31,13 +32,17 @@ import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedCard
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Tab
+import androidx.compose.material3.TabRow
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -57,12 +62,16 @@ import com.bertonibr.recomendacoes.AppViewModel
 import com.bertonibr.recomendacoes.data.Consenso
 import com.bertonibr.recomendacoes.data.TIPOS
 import com.bertonibr.recomendacoes.data.consenso
+import java.time.Instant
+import java.time.ZoneId
+import java.time.format.DateTimeFormatter
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ListaScreen(vm: AppViewModel, onAbrir: (String) -> Unit) {
     val ctx = LocalContext.current
     var busca by rememberSaveable { mutableStateOf("") }
+    var aba by rememberSaveable { mutableStateOf(0) }
     var tipos by remember { mutableStateOf(TIPOS.toSet()) }
     var corretora by remember { mutableStateOf<String?>(null) }
     var menu by remember { mutableStateOf(false) }
@@ -110,6 +119,13 @@ fun ListaScreen(vm: AppViewModel, onAbrir: (String) -> Unit) {
     }
     val lista = consenso(filtradas)
     val corretoras = vm.recs.map { it.corretora }.distinct().sorted()
+    val rankingAnalistas = vm.analistas.values
+        .filter { it.temCobertura && it.tipo in tipos && it.ticker.contains(q) }
+        .sortedBy { it.media ?: Double.MAX_VALUE }
+    val mostrarVerGrafico = q.isNotEmpty() &&
+        (if (aba == 0) lista.none { it.ticker == q } else rankingAnalistas.none { it.ticker == q })
+
+    LaunchedEffect(aba) { if (aba == 1) vm.atualizarAnalistas() }
 
     Scaffold(
         topBar = {
@@ -157,8 +173,13 @@ fun ListaScreen(vm: AppViewModel, onAbrir: (String) -> Unit) {
             }
         },
     ) { pad ->
+      Column(Modifier.fillMaxSize().padding(pad)) {
+        TabRow(selectedTabIndex = aba) {
+            Tab(selected = aba == 0, onClick = { aba = 0 }, text = { Text("Minhas") })
+            Tab(selected = aba == 1, onClick = { aba = 1 }, text = { Text("Analistas") })
+        }
         LazyColumn(
-            Modifier.fillMaxSize().padding(pad),
+            Modifier.fillMaxSize(),
             contentPadding = PaddingValues(start = 16.dp, top = 8.dp, end = 16.dp, bottom = 88.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
@@ -189,7 +210,7 @@ fun ListaScreen(vm: AppViewModel, onAbrir: (String) -> Unit) {
                             label = { Text(t) },
                         )
                     }
-                    Box {
+                    if (aba == 0) Box {
                         FilterChip(
                             selected = corretora != null,
                             onClick = { menuCorretora = true },
@@ -211,14 +232,46 @@ fun ListaScreen(vm: AppViewModel, onAbrir: (String) -> Unit) {
                     }
                 }
             }
-            item {
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Resumo("Ações", lista.size, MaterialTheme.colorScheme.onSurface, Modifier.weight(1f))
-                    Resumo("Compra", lista.count { it.consenso == "Compra" }, CorCompra, Modifier.weight(1f))
-                    Resumo("Venda", lista.count { it.consenso == "Venda" }, CorVenda, Modifier.weight(1f))
+            if (aba == 0) {
+                item {
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Resumo("Ações", lista.size, MaterialTheme.colorScheme.onSurface, Modifier.weight(1f))
+                        Resumo("Compra", lista.count { it.consenso == "Compra" }, CorCompra, Modifier.weight(1f))
+                        Resumo("Venda", lista.count { it.consenso == "Venda" }, CorVenda, Modifier.weight(1f))
+                    }
+                }
+            } else {
+                item {
+                    val prog = vm.progressoAnalistas
+                    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            val atualizado = vm.analistas.values.maxOfOrNull { it.quando }
+                            Text(
+                                when {
+                                    prog != null -> "Atualizando ${prog.first} de ${prog.second}…"
+                                    atualizado != null -> "${rankingAnalistas.size} ações · atualizado " +
+                                        Instant.ofEpochMilli(atualizado).atZone(ZoneId.systemDefault()).format(DATA_HORA)
+                                    else -> "Consenso de analistas (Yahoo Finance)"
+                                },
+                                Modifier.weight(1f),
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                            IconButton(onClick = { vm.atualizarAnalistas(forcar = true) }, enabled = prog == null) {
+                                Icon(Icons.Default.Refresh, "Atualizar")
+                            }
+                        }
+                        if (prog != null) {
+                            LinearProgressIndicator(
+                                progress = { prog.first.toFloat() / prog.second.coerceAtLeast(1) },
+                                modifier = Modifier.fillMaxWidth(),
+                            )
+                        }
+                        vm.erroAnalistas?.let { Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall) }
+                    }
                 }
             }
-            if (q.isNotEmpty() && lista.none { it.ticker == q }) {
+            if (mostrarVerGrafico) {
                 item {
                     OutlinedCard(onClick = { onAbrir(q) }, modifier = Modifier.fillMaxWidth()) {
                         Text(
@@ -229,16 +282,21 @@ fun ListaScreen(vm: AppViewModel, onAbrir: (String) -> Unit) {
                     }
                 }
             }
-            items(lista, key = { it.ticker }) { c -> CartaoConsenso(c) { onAbrir(c.ticker) } }
-            if (lista.isEmpty() && q.isEmpty()) {
-                item {
-                    Text(
-                        "Nenhuma recomendação. Toque em + para ler uma foto/PDF de carteira recomendada ou digitar.",
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
+            if (aba == 0) {
+                items(lista, key = { it.ticker }) { c -> CartaoConsenso(c) { onAbrir(c.ticker) } }
+                if (lista.isEmpty() && q.isEmpty()) {
+                    item {
+                        Text(
+                            "Nenhuma recomendação. Toque em + para ler uma foto/PDF de carteira recomendada ou digitar.",
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
                 }
+            } else {
+                items(rankingAnalistas, key = { it.ticker }) { c -> CartaoAnalistas(c) { onAbrir(c.ticker) } }
             }
         }
+      }
     }
 
     if (nova) {
@@ -251,6 +309,8 @@ fun ListaScreen(vm: AppViewModel, onAbrir: (String) -> Unit) {
         )
     }
 }
+
+private val DATA_HORA = DateTimeFormatter.ofPattern("dd/MM HH:mm")
 
 @Composable
 private fun Resumo(rotulo: String, valor: Int, cor: Color, modifier: Modifier) {

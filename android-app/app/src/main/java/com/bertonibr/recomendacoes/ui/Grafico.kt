@@ -37,7 +37,12 @@ private val DATA_CURTA = DateTimeFormatter.ofPattern("dd/MM/yy")
 
 /** Candles + médias móveis + volume + linhas de preço-alvo. Toque ou arraste para ver os valores do dia. */
 @Composable
-fun GraficoCandles(candles: List<Candle>, recs: List<Recomendacao>, modifier: Modifier = Modifier) {
+fun GraficoCandles(
+    candles: List<Candle>,
+    recs: List<Recomendacao>,
+    modifier: Modifier = Modifier,
+    alvoConsenso: Double? = null,
+) {
     val mm20 = remember(candles) { mediaMovel(candles, 20) }
     val mm50 = remember(candles) { mediaMovel(candles, 50) }
     val medidor = rememberTextMeasurer()
@@ -72,7 +77,7 @@ fun GraficoCandles(candles: List<Candle>, recs: List<Recomendacao>, modifier: Mo
         val topoVol = hTotal * 0.80f
         val hVol = hTotal - topoVol
 
-        val alvos = recs.mapNotNull { it.precoAlvo }
+        val alvos = recs.mapNotNull { it.precoAlvo } + listOfNotNull(alvoConsenso)
         var minP = min(candles.minOf { it.minima }, alvos.minOrNull() ?: Double.MAX_VALUE)
         var maxP = max(candles.maxOf { it.maxima }, alvos.maxOrNull() ?: -Double.MAX_VALUE)
         val folga = ((maxP - minP) * 0.06).coerceAtLeast(0.01)
@@ -139,6 +144,13 @@ fun GraficoCandles(candles: List<Candle>, recs: List<Recomendacao>, modifier: Mo
                 val txt = medidor.measure("${r.corretora}: ${r.recomendacao} ${a.fmt()}", estilo.copy(color = cor))
                 drawText(txt, topLeft = Offset(4.dp.toPx(), max(0f, yy - txt.size.height - 2f)))
             }
+        }
+
+        alvoConsenso?.let { a ->
+            val yy = y(a)
+            drawLine(CorConsenso, Offset(0f, yy), Offset(w, yy), 1.5.dp.toPx(), pathEffect = tracejado)
+            val txt = medidor.measure("Consenso analistas ${a.fmt()}", estilo.copy(color = CorConsenso))
+            drawText(txt, topLeft = Offset(max(0f, w - txt.size.width - 4.dp.toPx()), (yy + 2f).coerceAtMost(hPreco - txt.size.height)))
         }
 
         // Datas no rodapé
