@@ -1,0 +1,82 @@
+using System;
+using System.Windows.Forms;
+using ABB.Robotics.RobotStudio;
+using ABB.Robotics.RobotStudio.Environment;
+
+namespace RsMcp.AddIn
+{
+    /// <summary>
+    /// Ponto de entrada do add-in. Cria a aba "Claude" no ribbon, o painel de chat
+    /// e o named pipe que o servidor MCP usa para chamar a API do RobotStudio.
+    /// </summary>
+    public class Addin
+    {
+        private static PipeServer _pipe;
+        private static ToolWindow _chatWindow;
+
+        // Chamado pelo RobotStudio na thread da UI.
+        public static void AddinMain()
+        {
+            var ui = new UiInvoker();
+            var commands = new CommandDispatcher(ui);
+            _pipe = new PipeServer(commands.Dispatch);
+            _pipe.Start();
+
+            var tab = new RibbonTab("RsMcpTab", "Claude");
+            UIEnvironment.RibbonTabs.Add(tab);
+            var group = new RibbonGroup("RsMcpGroup", "Claude");
+            var button = new CommandBarButton("RsMcpOpenChat", "Abrir chat");
+            button.DefaultEnabled = true;
+            button.ExecuteCommand += (s, e) => ShowChat();
+            group.Controls.Add(button);
+            tab.Groups.Add(group);
+
+            Log("RsMcp carregado. Pipe: " + PipeServer.PipeName);
+        }
+
+        private static void ShowChat()
+        {
+            if (_chatWindow == null)
+            {
+                _chatWindow = new ToolWindow("RsMcpChat", new ChatPanel(), "Claude");
+                UIEnvironment.Windows.AddDocked(_chatWindow, DockStyle.Right);
+            }
+            _chatWindow.Visible = true;
+        }
+
+        public static void Log(string text)
+        {
+            try { Logger.AddMessage(new LogMessage("[RsMcp] " + text)); }
+            catch (Exception) { /* log nunca derruba o add-in */ }
+        }
+    }
+
+    /// <summary>
+    /// A API do RobotStudio so pode ser usada na thread da UI. O pipe roda em outra thread
+    /// e usa esta classe para executar cada comando na thread certa.
+    /// </summary>
+    public sealed class UiInvoker
+    {
+        private readonly Control _control;
+
+        public UiInvoker()
+        {
+            _control = new Control();
+            _control.CreateControl(); // cria o handle na thread atual (UI)
+        }
+
+        public T Run<T>(Func<T> func)
+        {
+            if (!_control.InvokeRequired) return func();
+            T result = default(T);
+            Exception error = null;
+            _control.Invoke(new Action(() =>
+            {
+                try { result = func(); }
+                catch (Exception ex) { error = ex; }
+            }));
+            if (error != null) throw error;
+            return result;
+        }
+    }
+}

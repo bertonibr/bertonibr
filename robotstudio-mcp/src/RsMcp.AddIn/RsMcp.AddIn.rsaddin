@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<RsAddIn>
+  <Assembly>RsMcp.AddIn.dll</Assembly>
+  <ExecutionContext>Shared</ExecutionContext>
+  <AutoLoad>true</AutoLoad>
+</RsAddIn>
