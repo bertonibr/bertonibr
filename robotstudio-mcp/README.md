@@ -22,7 +22,24 @@ O add-in usa a API do RobotStudio, sem controlar mouse nem teclado. O PC fica li
 - .NET SDK 8 (`winget install Microsoft.DotNet.SDK.8`).
 - Claude Code instalado e logado (`claude` funcionando no terminal).
 
-## Instalação
+## Instalação com o Claude Code no seu PC (recomendado)
+
+1. No PowerShell:
+   ```powershell
+   winget install -e --id Git.Git
+   winget install -e --id Microsoft.DotNet.SDK.8
+   irm https://claude.ai/install.ps1 | iex
+   ```
+2. Feche e abra o PowerShell de novo, depois rode:
+   ```powershell
+   git clone -b ccr-e6c95204-httqsk https://github.com/bertonibr/bertonibr.git $HOME\RsMcp
+   cd $HOME\RsMcp\robotstudio-mcp
+   claude
+   ```
+   Para acompanhar pelo app Claude no celular, use `claude remote-control` no lugar de `claude`.
+3. Peça: **"Instale o RsMcp seguindo o CLAUDE.md"**. O Claude compila, corrige o que for preciso e guia os testes.
+
+## Instalação manual
 
 ```powershell
 # PowerShell como administrador, com o RobotStudio fechado
