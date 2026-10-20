@@ -6,6 +6,8 @@ Projeto escrito numa sessão na nuvem, sem Windows nem RobotStudio:
 
 Ambiente do usuário: Windows, RobotStudio 2025, controlador IRC5 com RobotWare 6. O usuário fala português e quer respostas curtas e objetivas.
 
+**Licença**: segundo a documentação do SDK, add-ins que referenciam `ABB.Robotics.RobotStudio.dll` só rodam com RobotStudio **Premium**. Confirme a licença do usuário antes de tudo.
+
 ## Arquitetura (resumo)
 
 Painel de chat (`ChatPanel.cs`) → `claude -p --mcp-config mcp.json` → `RsMcp.Server.exe` → named pipe `RsMcpBridge` → `PipeServer.cs` → `CommandDispatcher.cs`.
@@ -23,7 +25,11 @@ Painel de chat (`ChatPanel.cs`) → `claude -p --mcp-config mcp.json` → `RsMcp
    - Ajuste o padrão de `$AddinDir` em `install.ps1` para a pasta que o RS 2025 realmente lê. Prefira uma pasta por usuário, se existir, porque dispensa administrador.
 3. **Compilar o add-in**: `dotnet build src\RsMcp.AddIn\RsMcp.AddIn.csproj -c Release -p:RobotStudioBin="<Bin>"`.
    - Corrija os erros pelas assinaturas públicas reais: IntelliSense ou Object Browser do Visual Studio, documentação do SDK (developercenter.robotstudio.com) ou reflexão em PowerShell (`Add-Type -Path` + `GetMethods()`).
-   - Maior risco (marcado com `TODO conferir` ou escrito sem validação): `Part.Load`, `Station.Save`/`SaveAs`, `UiCommandIds` com `CommandBarButton.Execute`, construtor de `RsMoveInstruction`, `Frame.Matrix`/`UserFrame.Matrix`, `Matrix4.EulerZYX`, construtor de `ToolWindow`, `Simulator.Start`/`Stop`, PC SDK (`Controller.Connect`, `Module.SaveToFile`, `FileSystem.PutFile`/`GetFile`).
+   - Maior risco (marcado com `TODO conferir` ou escrito sem validação):
+     - estação: `Part.Load`, `Station.Save`/`SaveAs`, construtor de `RsMoveInstruction`, `Frame.Matrix`/`UserFrame.Matrix`, `Matrix4.EulerZYX`, `Simulator.Start`/`Stop`;
+     - interface: `UiCommandIds`, `CommandBarButton.Execute`, varredura do ribbon (`UIEnvironment.RibbonTabs`, `RibbonGroup.Controls`, `CommandBarPopup.Controls`, `CommandBarControl.Id`/`Caption`), construtor de `ToolWindow`;
+     - controlador: `new RsIrc5Controller(path)`, `station.Irc5Controllers`, `StartAsync(VirtualControllerRestartMode, IEnumerable<Mechanism>, bool, bool)`, `RsIrc5Controller.SystemId`, `ControllerManager.VirtualControllerReferences`;
+     - PC SDK: `Controller.Connect`, `ControllerInfo.SystemId`, `Module.SaveToFile`, `FileSystem.PutFile`/`GetFile`.
    - Corrija de verdade; não comente nem remova uma ferramenta só para compilar. Se uma função não existir na API, diga ao usuário e proponha a alternativa.
 4. **Instalar**: o RobotStudio precisa estar fechado.
    - Se a pasta de add-ins exigir administrador, peça ao usuário para rodar `.\install.ps1` num PowerShell como administrador (você não consegue elevar).
@@ -32,8 +38,16 @@ Painel de chat (`ChatPanel.cs`) → `claude -p --mcp-config mcp.json` → `RsMcp
    1. Abrir o RobotStudio. A aba "Claude" deve aparecer e o Output deve mostrar `[RsMcp] RsMcp carregado`.
    2. Abrir o chat (isso grava o `mcp.json`).
    3. No terminal, em `$HOME\Documents\RsMcp`: `claude -p "use a ferramenta ping do robotstudio" --mcp-config mcp.json --allowedTools mcp__robotstudio`.
-   4. Validar as ferramentas em ordem: `new_station`, `add_library` (procure um `.rslib` de robô IRB), criar o controlador pela UI (Robot System > From Layout, RW6), `create_workobject`, `create_target`, `create_path`, `auto_configure`, `sync_to_rapid`, `list_rapid_modules`, `read_rapid_module`, `write_rapid_module`, `simulation`.
+   4. Validar as ferramentas em ordem: `new_station`, `add_library` (procure um `.rslib` de robô IRB), `create_controller`, `create_workobject`, `create_target`, `create_path`, `auto_configure`, `sync_to_rapid`, `list_rapid_modules`, `read_rapid_module`, `write_rapid_module`, `simulation`. Depois `list_virtual_controllers` e `add_controller` numa segunda estação.
    5. Por último, testar o painel de chat dentro do RobotStudio.
+
+## Controlador virtual (pedido do usuário: o Claude deve criar o controlador)
+
+- O SDK não tem API pública para "From Layout" (conferido na documentação e no fórum da ABB). A API pública só liga e inicia um sistema que já existe em disco: é o que o `add_controller` faz.
+- `create_controller` abre o assistente From Layout (procura o botão pelo texto; confira com `list_ui_commands` e filtro "Layout") e espera o controlador aparecer na estação. O usuário só clica Finish.
+- **Tarefa extra**: o usuário quer criar sem cliques. Procure nos assemblies do RS 2025, por reflexão de metadados (sem descompilar), um método que crie sistema a partir do layout. Comece pelos públicos.
+  - Se só houver método interno: explique ao usuário que pode quebrar quando o RobotStudio for atualizado e só implemente com o OK dele.
+  - Nesse caso, implemente dentro do `create_controller` (parâmetros: nome, versão do RobotWare, opções), mantendo o assistente como alternativa se falhar.
 
 ## Regras
 

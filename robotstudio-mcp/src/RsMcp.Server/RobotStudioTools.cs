@@ -55,6 +55,28 @@ public static class RobotStudioTools
         CancellationToken ct = default)
         => bridge.CallAsync("attach", new { child, parent }, ct);
 
+    [McpServerTool(Name = "create_controller"), Description(
+        "Cria o controlador virtual pela funcao From Layout do RobotStudio. Posicione robos e mecanismos antes. " +
+        "Abre o assistente no RobotStudio e espera o usuario concluir (Finish); avise o usuario disso. " +
+        "Retorna o station_info quando o controlador estiver pronto.")]
+    public static Task<string> CreateController(BridgeClient bridge,
+        [Description("Minutos de espera pelo usuario")] double timeoutMinutes = 15,
+        CancellationToken ct = default)
+        => bridge.CallAsync("create_controller", new { timeoutMinutes }, ct);
+
+    [McpServerTool(Name = "add_controller"), Description(
+        "Liga a estacao a um sistema RW6 ja existente (pasta do controlador virtual) e o inicia, " +
+        "mapeando os mecanismos automaticamente. Sem cliques do usuario.")]
+    public static Task<string> AddController(BridgeClient bridge,
+        [Description("Pasta do sistema (controlador virtual)")] string path,
+        CancellationToken ct = default)
+        => bridge.CallAsync("add_controller", new { path }, ct);
+
+    [McpServerTool(Name = "list_virtual_controllers"), Description(
+        "Lista os controladores virtuais que o RobotStudio conhece em disco (nome e pasta), para usar em add_controller.")]
+    public static Task<string> ListVirtualControllers(BridgeClient bridge, CancellationToken ct = default)
+        => bridge.CallAsync("list_virtual_controllers", null, ct);
+
     [McpServerTool(Name = "create_workobject"), Description(
         "Cria um workobject na task ativa. uframe em relacao ao mundo; mm e graus.")]
     public static Task<string> CreateWorkobject(BridgeClient bridge,
@@ -118,4 +140,10 @@ public static class RobotStudioTools
     [McpServerTool(Name = "save_station"), Description("Salva a estacao (exige licenca Premium). Caminho opcional para Save As.")]
     public static Task<string> SaveStation(BridgeClient bridge, string? path = null, CancellationToken ct = default)
         => bridge.CallAsync("save_station", new { path }, ct);
+
+    [McpServerTool(Name = "list_ui_commands"), Description(
+        "Diagnostico: lista id e texto dos comandos do ribbon do RobotStudio que contem o filtro.")]
+    public static Task<string> ListUiCommands(BridgeClient bridge,
+        [Description("Trecho do id ou do texto do botao")] string filter = "", CancellationToken ct = default)
+        => bridge.CallAsync("list_ui_commands", new { filter }, ct);
 }

@@ -1,4 +1,5 @@
 using System;
+using System.Threading.Tasks;
 using System.Windows.Forms;
 using ABB.Robotics.RobotStudio;
 using ABB.Robotics.RobotStudio.Environment;
@@ -77,6 +78,23 @@ namespace RsMcp.AddIn
             }));
             if (error != null) throw error;
             return result;
+        }
+
+        // Metodos async da API (ex.: StartAsync): comecam na thread da UI e a espera fica na thread
+        // que chamou. Nunca chame da thread da UI: esperar nela trava o RobotStudio.
+        public T RunAsync<T>(Func<Task<T>> func)
+        {
+            return Run(func).GetAwaiter().GetResult();
+        }
+
+        // Executa na thread da UI sem esperar (ex.: abrir um assistente modal).
+        public void Post(Action action)
+        {
+            _control.BeginInvoke(new Action(() =>
+            {
+                try { action(); }
+                catch (Exception ex) { Addin.Log(ex.Message); }
+            }));
         }
     }
 }

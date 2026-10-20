@@ -18,7 +18,7 @@ O add-in usa a API do RobotStudio, sem controlar mouse nem teclado. O PC fica li
 
 ## Requisitos
 
-- Windows com RobotStudio 2025. A licença Premium é necessária para salvar a estação e importar geometria.
+- Windows com RobotStudio 2025 e **licença Premium**: o SDK da ABB exige Premium para rodar add-ins que usam a API do RobotStudio.
 - .NET SDK 8 (`winget install Microsoft.DotNet.SDK.8`).
 - Claude Code instalado e logado (`claude` funcionando no terminal).
 
@@ -62,13 +62,16 @@ As ferramentas recebem mm e graus (Euler ZYX, como no Set Position).
 | `add_library` | Adiciona um `.rslib` (robô, posicionador...) e posiciona |
 | `import_geometry` | Importa CAD e posiciona |
 | `set_position`, `attach` | Posiciona um componente; anexa um componente a um mecanismo |
+| `create_controller` | Cria o controlador virtual pelo From Layout: abre o assistente e espera você clicar Finish |
+| `add_controller`, `list_virtual_controllers` | Liga a estação a um sistema RW6 já existente e o inicia, sem cliques |
 | `create_workobject`, `create_target`, `create_path` | Programação offline na task ativa |
 | `auto_configure`, `sync_to_rapid` | Equivalem a Auto Configuration e Synchronize to RAPID |
 | `list_rapid_modules`, `read_rapid_module`, `write_rapid_module` | RAPID no controlador virtual (PC SDK) |
 | `simulation` | Inicia e para a simulação |
 | `save_station` | Salva a estação |
+| `list_ui_commands` | Diagnóstico: lista os comandos do ribbon |
 
-O controlador virtual é criado pela UI (**Robot System > From Layout**). Depois disso as ferramentas de task e RAPID passam a funcionar.
+O SDK da ABB não tem função pública para o "From Layout". Por isso o `create_controller` abre o assistente: você só confere e clica Finish, e o Claude continua sozinho. Para criar sem nenhum clique, o Claude no seu PC vai investigar uma função interna do RobotStudio 2025 (ver `CLAUDE.md`).
 
 ## Estado
 
@@ -76,7 +79,8 @@ O controlador virtual é criado pela UI (**Robot System > From Layout**). Depois
 - `RsMcp.AddIn` ainda **não foi compilado**, porque depende das DLLs do RobotStudio, que só existem no Windows. Os pontos marcados com `TODO conferir` usam chamadas que precisam ser validadas contra o SDK 2025:
   - importação de geometria (`Part.Load`);
   - salvar a estação (`Save`/`SaveAs`);
-  - IDs dos comandos da UI (`UiCommandIds`) para sync e auto configuration.
+  - IDs dos comandos da UI (`UiCommandIds`) para sync, auto configuration e From Layout;
+  - controlador virtual (`RsIrc5Controller`, `StartAsync`, `ControllerManager`).
 
 ## Usar sem o painel (opcional)
 

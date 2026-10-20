@@ -1,9 +1,13 @@
 using System;
 using System.Collections;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
+using System.Threading;
+using System.Threading.Tasks;
 using ABB.Robotics.Math;
 using ABB.Robotics.RobotStudio;
+using ABB.Robotics.RobotStudio.Controllers;
 using ABB.Robotics.RobotStudio.Environment;
 using ABB.Robotics.RobotStudio.Stations;
 using ABB.Robotics.RobotStudio.Stations.Forms;
@@ -29,11 +33,26 @@ namespace RsMcp.AddIn
             switch (method)
             {
                 case "ping": return "RobotStudio OK";
-                case "list_rapid_modules": return _rapid.ListModules(Str(p, "task", "T_ROB1"));
-                case "read_rapid_module": return _rapid.ReadModule(Str(p, "task", "T_ROB1"), Str(p, "module"));
-                case "write_rapid_module": return _rapid.WriteModule(Str(p, "task", "T_ROB1"), Str(p, "code"));
+                case "add_controller": return _ui.RunAsync(() => AddController(p));
+                case "create_controller": return CreateController(p);
+                case "list_rapid_modules": return _rapid.ListModules(ActiveSystemId(), Str(p, "task", "T_ROB1"));
+                case "read_rapid_module": return _rapid.ReadModule(ActiveSystemId(), Str(p, "task", "T_ROB1"), Str(p, "module"));
+                case "write_rapid_module": return _rapid.WriteModule(ActiveSystemId(), Str(p, "task", "T_ROB1"), Str(p, "code"));
             }
             return _ui.Run(() => DispatchStation(method, p));
+        }
+
+        // SystemId do controlador da estacao, para o PC SDK conectar no controlador certo.
+        private Guid? ActiveSystemId()
+        {
+            return _ui.Run(() =>
+            {
+                var station = Project.ActiveProject as Station;
+                if (station == null) return (Guid?)null;
+                var controller = (station.ActiveTask != null ? station.ActiveTask.Parent as RsIrc5Controller : null)
+                    ?? station.Irc5Controllers.Cast<RsIrc5Controller>().FirstOrDefault();
+                return controller != null ? (Guid?)controller.SystemId : null;
+            });
         }
 
         private object DispatchStation(string method, Dictionary<string, object> p)
@@ -51,6 +70,8 @@ namespace RsMcp.AddIn
                 case "create_path": return Undoable("Create path", () => CreatePath(p));
                 case "auto_configure": return AutoConfigure(p);
                 case "sync_to_rapid": return RunUiCommand(UiCommandIds.SyncToRapid);
+                case "list_virtual_controllers": return ListVirtualControllers();
+                case "list_ui_commands": return ListUiCommands(p);
                 case "simulation": return Simulation(p);
                 case "save_station": return SaveStation(p);
                 default: throw new InvalidOperationException("Comando desconhecido: " + method);
@@ -81,6 +102,7 @@ namespace RsMcp.AddIn
                 { "name", station.Name },
                 { "components", station.GraphicComponents.Cast<GraphicComponent>()
                     .Select(c => new { name = c.Name, type = c.GetType().Name, pose = PoseOut(c.Transform.GlobalMatrix) }).ToList() },
+                { "controllers", station.Irc5Controllers.Cast<RsIrc5Controller>().Select(c => c.Name).ToList() },
             };
             var task = station.ActiveTask;
             if (task != null)
@@ -158,6 +180,64 @@ namespace RsMcp.AddIn
                 .FirstOrDefault(c => string.Equals(c.Name, name, StringComparison.OrdinalIgnoreCase));
             if (found == null) throw new InvalidOperationException("Componente nao encontrado: " + name);
             return found;
+        }
+
+        // ---------- controlador virtual ----------
+
+        // Liga um sistema RW6 ja existente (pasta do controlador virtual) a estacao e inicia.
+        private static async Task<object> AddController(Dictionary<string, object> p)
+        {
+            var station = ActiveStation();
+            var path = Str(p, "path");
+            if (!Directory.Exists(path)) throw new DirectoryNotFoundException("Pasta do sistema nao encontrada: " + path);
+            var controller = new RsIrc5Controller(path);
+            station.Irc5Controllers.Add(controller);
+            // null = mapeamento automatico dos mecanismos; se nao conseguir, o RobotStudio abre um dialogo.
+            await controller.StartAsync(VirtualControllerRestartMode.WarmStart, null, false, true);
+            return "Controlador iniciado: " + controller.Name;
+        }
+
+        // O SDK nao tem API publica para "From Layout": abre o assistente e espera o usuario concluir.
+        private object CreateController(Dictionary<string, object> p)
+        {
+            var minutes = Num(p, "timeoutMinutes");
+            var deadline = DateTime.UtcNow + TimeSpan.FromMinutes(minutes > 0 ? minutes : 15);
+            var before = _ui.Run(() => ActiveStation().Irc5Controllers.Count);
+            var command = _ui.Run(() => FindRibbonControl(UiCommandIds.FromLayoutCaption));
+            _ui.Post(() => Execute(command));
+
+            while (DateTime.UtcNow < deadline)
+            {
+                Thread.Sleep(2000);
+                var ready = _ui.Run(() =>
+                {
+                    var station = ActiveStation();
+                    return station.Irc5Controllers.Count > before && station.ActiveTask != null;
+                });
+                if (ready) return _ui.Run(() => StationInfo());
+            }
+            return "Tempo esgotado. Conclua o assistente From Layout e rode station_info.";
+        }
+
+        // Sistemas que o RobotStudio conhece em disco. Propriedades lidas por reflexao,
+        // porque os nomes nao estao confirmados para o RS 2025.
+        private static object ListVirtualControllers()
+        {
+            return ControllerManager.VirtualControllerReferences.Cast<object>().Select(Describe).ToList();
+        }
+
+        private static Dictionary<string, object> Describe(object item)
+        {
+            var info = new Dictionary<string, object>();
+            foreach (var prop in item.GetType().GetProperties())
+            {
+                var type = prop.PropertyType;
+                if (prop.GetIndexParameters().Length > 0) continue;
+                if (type != typeof(string) && type != typeof(Guid) && type != typeof(bool) && !type.IsEnum) continue;
+                try { info[prop.Name] = Convert.ToString(prop.GetValue(item, null)); }
+                catch (Exception) { /* propriedade sem valor neste estado */ }
+            }
+            return info;
         }
 
         // ---------- programacao ----------
@@ -257,12 +337,61 @@ namespace RsMcp.AddIn
             return "Estacao salva";
         }
 
+        // ---------- comandos da interface ----------
+
         private static object RunUiCommand(string id)
         {
-            var control = CommandBarControl.FromID(id) as CommandBarButton;
-            if (control == null) throw new InvalidOperationException("Comando da UI nao encontrado: " + id + ". Veja UiCommandIds.");
-            control.Execute();
+            var control = CommandBarControl.FromID(id);
+            if (control == null) throw new InvalidOperationException("Comando da UI nao encontrado: " + id + ". Use list_ui_commands.");
+            Execute(control);
             return "Comando executado: " + id;
+        }
+
+        private static void Execute(CommandBarControl control)
+        {
+            var button = control as CommandBarButton;
+            if (button == null) throw new InvalidOperationException("Comando nao executavel: " + control.Id);
+            button.Execute();
+        }
+
+        private static CommandBarControl FindRibbonControl(string text)
+        {
+            var control = RibbonControls().FirstOrDefault(c => Matches(c, text));
+            if (control == null) throw new InvalidOperationException("Comando nao encontrado na interface: " + text + ". Use list_ui_commands.");
+            return control;
+        }
+
+        private static object ListUiCommands(Dictionary<string, object> p)
+        {
+            var filter = Str(p, "filter", "");
+            return RibbonControls().Where(c => filter.Length == 0 || Matches(c, filter))
+                .Select(c => new { id = c.Id, caption = c.Caption }).Take(200).ToList();
+        }
+
+        private static IEnumerable<CommandBarControl> RibbonControls()
+        {
+            foreach (RibbonTab tab in UIEnvironment.RibbonTabs)
+                foreach (RibbonGroup group in tab.Groups)
+                    foreach (var control in Flatten(group.Controls))
+                        yield return control;
+        }
+
+        private static IEnumerable<CommandBarControl> Flatten(IEnumerable controls)
+        {
+            foreach (CommandBarControl control in controls)
+            {
+                yield return control;
+                var popup = control as CommandBarPopup;
+                if (popup == null) continue;
+                foreach (var child in Flatten(popup.Controls))
+                    yield return child;
+            }
+        }
+
+        private static bool Matches(CommandBarControl control, string text)
+        {
+            return (control.Id ?? "").IndexOf(text, StringComparison.OrdinalIgnoreCase) >= 0
+                || (control.Caption ?? "").IndexOf(text, StringComparison.OrdinalIgnoreCase) >= 0;
         }
 
         // ---------- utilitarios ----------
@@ -326,12 +455,14 @@ namespace RsMcp.AddIn
     }
 
     /// <summary>
-    /// IDs de comandos da UI usados quando a API nao tem metodo direto.
-    /// TODO conferir no RS 2025 (os IDs podem mudar entre versoes).
+    /// Comandos da UI usados quando a API nao tem metodo direto.
+    /// TODO conferir no RS 2025 com list_ui_commands (os IDs podem mudar entre versoes).
     /// </summary>
     public static class UiCommandIds
     {
         public const string SyncToRapid = "SyncToRAPID";
         public const string AutoConfiguration = "AutoConfiguration";
+        // Procurado pelo texto do botao (UI em ingles): Home > Virtual Controller > From Layout...
+        public const string FromLayoutCaption = "From Layout";
     }
 }

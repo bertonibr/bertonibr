@@ -16,7 +16,9 @@ namespace RsMcp.AddIn
     {
         private const string SystemPrompt =
             "Voce opera o ABB RobotStudio 2025 pelas ferramentas mcp__robotstudio. Controlador IRC5, RobotWare 6. " +
-            "Unidades: mm e graus. Antes de alterar, rode station_info. RAPID sem acentos. Responda em portugues, curto.";
+            "Unidades: mm e graus. Antes de alterar, rode station_info. RAPID sem acentos. " +
+            "Sem controlador na estacao: posicione os mecanismos e use create_controller (o usuario so clica Finish) " +
+            "ou add_controller com um sistema existente (veja list_virtual_controllers). Responda em portugues, curto.";
 
         private readonly RichTextBox _history = new RichTextBox();
         private readonly TextBox _input = new TextBox();
