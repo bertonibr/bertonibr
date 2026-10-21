@@ -82,7 +82,7 @@ No chat, peça a cerca (pode anexar o print com o traçado: vermelho = cerca, az
 4. avisa folgas apertadas, metros lineares e o que falta confirmar.
 
 Requisitos no PC (a instalação cuida disso):
-- o skill instalado em `%USERPROFILE%\.claude\skills\fechamento-seguranca-celula\SKILL.md`. Ele não vai para o GitHub, porque este repositório é público;
+- o skill: o Claude Code do PC baixa sozinho os skills da sua conta (logado com a conta claude.ai). Ele não vai para o GitHub, porque este repositório é público;
 - Python 3 e CadQuery (`py -m pip install cadquery`).
 
 ## Ferramentas MCP

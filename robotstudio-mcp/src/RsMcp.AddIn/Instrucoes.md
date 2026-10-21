@@ -51,7 +51,7 @@ O usuário anexa um croqui, print ou PDF de layout, e o caminho vem na mensagem.
 
 ## Fechamento de segurança (cerca em tela)
 
-Siga o skill `fechamento-seguranca-celula` do usuário: padrões aprovados, perguntas, portas, aberturas, verificações e modelo de resposta. Se ele não carregar como skill, leia o `SKILL.md` com Read em `~/.claude/skills` (procure a pasta `fechamento-seguranca-celula`).
+Siga o skill `anthropic-skills:fechamento-seguranca-celula` do usuário: padrões aprovados, perguntas, portas, aberturas, verificações e modelo de resposta. Ele vem sincronizado da conta do usuário em `~/.claude/skills/synced`. Se não carregar como skill, leia o `SKILL.md` com Read (procure a pasta `fechamento-seguranca-celula` dentro de `~/.claude/skills`).
 
 Dentro do RobotStudio, troque estes passos do skill:
 

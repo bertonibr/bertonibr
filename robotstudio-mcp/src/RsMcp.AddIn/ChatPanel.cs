@@ -236,9 +236,11 @@ namespace RsMcp.AddIn
         private string RunClaude(string prompt, bool continueConversation)
         {
             // As instrucoes vem do CLAUDE.md da pasta de trabalho (ver Workspace).
-            // Leitura liberada: imagens anexadas e skills do usuario (ex.: fechamento de seguranca).
+            // Liberado: ferramentas do RobotStudio, leitura das imagens anexadas e o skill de fechamento do
+            // usuario (o Claude Code sincroniza os skills da conta em ~/.claude/skills/synced).
             var args = "-p --output-format text --mcp-config mcp.json" +
                        " --allowedTools mcp__robotstudio \"Read(./imagens/**)\" \"Read(~/.claude/skills/**)\"" +
+                       " \"Skill(anthropic-skills:fechamento-seguranca-celula)\"" +
                        (continueConversation ? " --continue" : "");
 
             // cmd /c resolve tanto claude.exe quanto claude.cmd (instalacao via npm).
