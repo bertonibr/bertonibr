@@ -65,6 +65,7 @@ Painel de chat (`ChatPanel.cs`) → `claude -p --mcp-config mcp.json` → `RsMcp
 
 - O usuário tem o skill `fechamento-seguranca-celula` (padrões aprovados e gerador CadQuery) na conta do Claude. **Ele não vai para este repositório, que é público.**
 - O add-in grava `Documents\RsMcp\fechamento\gerar_fechamento.py`, que lê o código do gerador direto do `SKILL.md` instalado no PC e o roda com o JSON recebido pelo `generate_fence` (servidor MCP).
+- Testado na nuvem com o skill real e CadQuery 2.8: portas, aberturas e trecho diagonal sem interferências; `generate_fence` pelo MCP gerou STEP que reimporta com todos os sólidos válidos.
 - Na instalação:
   1. Procure o skill: `Get-ChildItem $HOME\.claude\skills -Recurse -Filter SKILL.md | Select-String "fechamento-seguranca-celula" -List`. Se não achar, peça ao usuário o `SKILL.md` e salve em `$HOME\.claude\skills\fechamento-seguranca-celula\SKILL.md`.
   2. Python 3 e CadQuery: `winget install -e --id Python.Python.3.12`, depois `py -m pip install cadquery`.

@@ -116,6 +116,7 @@ O SDK da ABB não tem função pública para o "From Layout". Por isso o `create
 ## Estado
 
 - `RsMcp.Server` compila e foi testado via stdio: lista as ferramentas e responde quando o RobotStudio não está aberto.
+- Fechamento de segurança: `generate_fence` foi testado com o seu skill e CadQuery 2.8 (STEP gerado e reimportado sem erros).
 - `RsMcp.AddIn` ainda **não foi compilado inteiro**, porque depende das DLLs do RobotStudio, que só existem no Windows. As partes sem API da ABB (chat, anexos, busca de bibliotecas e pipe) já compilam para .NET 4.8. Os pontos marcados com `TODO conferir` usam chamadas que precisam ser validadas contra o SDK 2025:
   - importação de geometria (`Part.Load`);
   - salvar a estação (`Save`/`SaveAs`);
