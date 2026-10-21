@@ -37,6 +37,10 @@ namespace RsMcp.AddIn
                 case "ping": return "RobotStudio OK";
                 case "list_library": return LibraryFinder.Find(Str(p, "filter", ""), Bool(p, "refresh"));
                 case "list_my_library": return LibraryFinder.FindUser(Str(p, "filter", ""));
+                case "save_to_library":
+                    return UserLibrary.SaveFromAttachment(Str(p, "file"), Str(p, "category", ""), Str(p, "name", null),
+                        Str(p, "notes", null), Bool(p, "replace"));
+                case "set_library_notes": return UserLibrary.SetNotes(Str(p, "path"), Str(p, "notes", ""));
                 case "add_controller": return _ui.RunAsync(() => AddController(p));
                 case "create_controller": return CreateController(p);
                 case "list_rapid_modules": return _rapid.ListModules(ActiveSystemId(), Str(p, "task", "T_ROB1"));

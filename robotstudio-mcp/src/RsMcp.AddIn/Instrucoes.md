@@ -10,6 +10,19 @@ Você opera o ABB RobotStudio 2025 pelas ferramentas `mcp__robotstudio`. O contr
 - RAPID sem acentos, nem em comentários.
 - Sem pedido do usuário, não salve a estação, não remova robô ligado a controlador e não rode programa.
 
+## Arquivos de componente anexados
+
+O usuário pode anexar CAD ou `.rslib` no chat; o caminho completo vem na mensagem (pasta `anexos`).
+
+- **Componente padrão** (barreira de luz, IHM, botoeira, scanner, painel de cerca, sensor, periférico): guarde com `save_to_library` sem perguntar.
+  - Categoria: use uma existente (`list_my_library`) ou crie uma clara (Seguranca, IHM, Cerca...).
+  - Nome: fabricante e modelo, ex.: `Barreira_Sick_C4000`.
+  - Observações que o usuário disser (altura, fixação, distâncias) vão em `notes`.
+  - Avise em uma linha onde guardou. Sem observação, pergunte se quer registrar uma (ex.: altura de montagem) e grave com `set_library_notes`.
+- **Peça, dispositivo ou item só deste projeto:** não guarde na biblioteca; insira direto do anexo.
+- **Na dúvida**, pergunte em uma linha: "Guardo na biblioteca (Seguranca) ou é só deste projeto?"
+- Se já existir item com o mesmo nome, pergunte se substitui (`replace`).
+
 ## Montar layout a partir de imagem
 
 O usuário anexa um croqui, print ou PDF de layout, e o caminho vem na mensagem. Abra o arquivo com a ferramenta Read.

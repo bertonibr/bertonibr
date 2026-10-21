@@ -1,13 +1,15 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Text;
+using System.Text.RegularExpressions;
 
 namespace RsMcp.AddIn
 {
     /// <summary>
-    /// Pasta de trabalho do Claude (Documents\RsMcp): mcp.json, instrucoes, CLAUDE.md, imagens e biblioteca.
+    /// Pasta de trabalho do Claude (Documents\RsMcp): mcp.json, instrucoes, CLAUDE.md, imagens, anexos e biblioteca.
     /// O painel roda o Claude Code nesta pasta, entao o CLAUDE.md daqui vale para toda conversa.
     /// </summary>
     public static class Workspace
@@ -16,6 +18,8 @@ namespace RsMcp.AddIn
         public static readonly string Dir =
             Path.GetFullPath(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments), "RsMcp"));
         public static readonly string ImagesDir = Path.Combine(Dir, "imagens");
+        // Arquivos de componente (CAD, .rslib) anexados no chat, antes de irem para a biblioteca.
+        public static readonly string AttachmentsDir = Path.Combine(Dir, "anexos");
         public static readonly string LibraryDir = Path.Combine(Dir, "biblioteca");
 
         private static readonly string LibraryFoldersFile = Path.Combine(Dir, "pastas-biblioteca.txt");
@@ -38,6 +42,7 @@ namespace RsMcp.AddIn
         public static void Prepare()
         {
             Directory.CreateDirectory(ImagesDir);
+            Directory.CreateDirectory(AttachmentsDir);
             var utf8 = new UTF8Encoding(false);
 
             // mcp.json aponta para o servidor publicado na pasta "server" ao lado do add-in.
@@ -79,6 +84,20 @@ namespace RsMcp.AddIn
         public static string RelativeImagePath(string file)
         {
             return "imagens/" + Path.GetFileName(file);
+        }
+
+        // Nome seguro para arquivo e pasta: sem acentos, so letras, numeros, _ e -. ".." vira vazio.
+        public static string Slug(string text)
+        {
+            var plain = new string((text ?? "").Normalize(NormalizationForm.FormD)
+                .Where(c => CharUnicodeInfo.GetUnicodeCategory(c) != UnicodeCategory.NonSpacingMark).ToArray());
+            return Regex.Replace(plain, "[^A-Za-z0-9_-]+", "_").Trim('_');
+        }
+
+        public static bool IsInside(string path, string dir)
+        {
+            var root = Path.GetFullPath(dir).TrimEnd('\\', '/') + Path.DirectorySeparatorChar;
+            return Path.GetFullPath(path).StartsWith(root, StringComparison.OrdinalIgnoreCase);
         }
     }
 }

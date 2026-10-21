@@ -53,7 +53,7 @@ Depois abra o RobotStudio e use a aba **Claude > Abrir chat**. Se a aba não apa
 
 ## Montar layout a partir de imagem
 
-1. No chat, anexe a imagem do layout: botão **Imagem...**, arrastar o arquivo ou **Ctrl+V** de um print. Aceita PNG, JPG e PDF.
+1. No chat, anexe a imagem do layout: botão **Anexar...**, arrastar o arquivo ou **Ctrl+V** de um print. Aceita PNG, JPG e PDF.
 2. O Claude lista o que identificou e pergunta o que faltar, até 3 perguntas por vez e sempre com uma sugestão: modelo do robô, origem, escala, alturas.
 3. Ele monta em etapas (robô → posicionador e mesas → peça → cerca). Depois de cada etapa, tira uma imagem da estação, compara com a sua e mostra o que fez.
 4. Equipamento sem CAD vira um bloco provisório colorido, que é trocado pelo CAD quando você mandar o arquivo.
@@ -64,6 +64,8 @@ Para registrar padrões da sua empresa (altura das mesas, robôs mais usados, di
 ## Sua biblioteca de componentes
 
 Guarde barreiras de luz, IHMs, botoeiras, painéis de cerca e outros itens em `Documents\RsMcp\biblioteca`. O Claude procura ali antes de criar um bloco provisório; quando acha o item, só pergunta onde colocar e quantos são.
+
+**Pelo chat (mais fácil)**: anexe o arquivo (CAD ou `.rslib`) e diga o que é, por exemplo: *"barreira de luz Sick C4000, altura 300 mm do chão"*. O Claude guarda na categoria certa, com nome e observações, e avisa onde ficou. Peça ou dispositivo de um projeto específico não vai para a biblioteca; na dúvida, ele pergunta.
 
 - **Formatos**: `.rslib` ou CAD (STEP, SAT, STL, glb...).
 - **Categorias**: cada subpasta vira uma categoria (já vêm `Seguranca`, `IHM`, `Cerca` e `Outros`).
@@ -84,6 +86,7 @@ As ferramentas recebem mm e graus (Euler ZYX, como no Set Position).
 | `set_position`, `attach` | Posiciona um componente; anexa um componente a um mecanismo |
 | `list_library` | Procura robôs, posicionadores e trilhos (`.rslib`) instalados no PC |
 | `list_my_library` | Lista a sua biblioteca de componentes, com categoria e observações |
+| `save_to_library`, `set_library_notes` | Guarda na biblioteca um arquivo anexado no chat; grava as observações de um item |
 | `create_box`, `remove_component` | Bloco provisório para equipamento sem CAD (mesa, base, cerca...); remove componentes |
 | `capture_view` | Gera uma imagem da estação (topo, iso ou vista atual) para o Claude conferir o layout |
 | `create_controller` | Cria o controlador virtual pelo From Layout: abre o assistente e espera você clicar Finish |

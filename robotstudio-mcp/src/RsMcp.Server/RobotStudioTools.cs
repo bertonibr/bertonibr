@@ -66,6 +66,26 @@ public static class RobotStudioTools
         CancellationToken ct = default)
         => bridge.CallAsync("list_my_library", new { filter }, ct);
 
+    [McpServerTool(Name = "save_to_library"), Description(
+        "Guarda na biblioteca do usuario um arquivo de componente anexado no chat (CAD ou .rslib, pasta anexos): " +
+        "move para <biblioteca>\\<categoria>\\<nome> e grava as observacoes. Use para componentes padrao " +
+        "(seguranca, IHM, botoeira, cerca, perifericos), nao para peca ou dispositivo do projeto. Retorna o caminho na biblioteca.")]
+    public static Task<string> SaveToLibrary(BridgeClient bridge,
+        [Description("Caminho completo do anexo")] string file,
+        [Description("Categoria (subpasta), ex.: Seguranca, IHM, Cerca")] string category,
+        [Description("Nome, ex.: Barreira_Sick_C4000 (vazio = nome do arquivo)")] string? name = null,
+        [Description("Observacoes de montagem: altura, fixacao, distancias")] string? notes = null,
+        [Description("Substitui item de mesmo nome (so com OK do usuario)")] bool replace = false,
+        CancellationToken ct = default)
+        => bridge.CallAsync("save_to_library", new { file, category, name, notes, replace }, ct);
+
+    [McpServerTool(Name = "set_library_notes"), Description(
+        "Grava ou troca as observacoes de um item da biblioteca do usuario (texto vazio remove).")]
+    public static Task<string> SetLibraryNotes(BridgeClient bridge,
+        [Description("Caminho do item na biblioteca")] string path,
+        string notes = "", CancellationToken ct = default)
+        => bridge.CallAsync("set_library_notes", new { path, notes }, ct);
+
     [McpServerTool(Name = "create_box"), Description(
         "Cria um bloco (caixa) para representar equipamento sem CAD: mesa, base, dispositivo, cerca, esteira. " +
         "A origem fica no centro da face de baixo; x, y, z posicionam essa origem no mundo. mm e graus.")]

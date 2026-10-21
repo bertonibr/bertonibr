@@ -21,6 +21,27 @@ namespace RsMcp.AddIn
 
         private static List<string> _cache;
 
+        public static IEnumerable<string> ComponentExtensions
+        {
+            get { return new[] { ".rslib" }.Concat(CadExtensions); }
+        }
+
+        public static bool IsComponentFile(string path)
+        {
+            return IsLibraryFile(path) || CadExtensions.Contains(Path.GetExtension(path));
+        }
+
+        // Ferramenta MCP que insere o arquivo na estacao.
+        public static string InsertTool(string path)
+        {
+            return IsLibraryFile(path) ? "add_library" : "import_geometry";
+        }
+
+        private static bool IsLibraryFile(string path)
+        {
+            return string.Equals(Path.GetExtension(path), ".rslib", StringComparison.OrdinalIgnoreCase);
+        }
+
         public static object Find(string filter, bool refresh)
         {
             if (_cache == null || refresh) _cache = Scan();
@@ -42,10 +63,8 @@ namespace RsMcp.AddIn
             {
                 var files = new List<string>();
                 Walk(root, "*.*", files);
-                foreach (var file in files)
+                foreach (var file in files.Where(IsComponentFile))
                 {
-                    var isLibrary = string.Equals(Path.GetExtension(file), ".rslib", StringComparison.OrdinalIgnoreCase);
-                    if (!isLibrary && !CadExtensions.Contains(Path.GetExtension(file))) continue;
                     var category = Category(root, file);
                     var name = Path.GetFileNameWithoutExtension(file);
                     if (!tokens.All(t => Normalize(category + name).Contains(t))) continue;
@@ -53,7 +72,7 @@ namespace RsMcp.AddIn
                     {
                         category,
                         name,
-                        tool = isLibrary ? "add_library" : "import_geometry",
+                        tool = InsertTool(file),
                         path = file,
                         notes = ReadNotes(file),
                     });

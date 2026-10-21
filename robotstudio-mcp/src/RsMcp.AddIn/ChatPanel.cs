@@ -6,7 +6,6 @@ using System.Drawing.Imaging;
 using System.IO;
 using System.Linq;
 using System.Text;
-using System.Text.RegularExpressions;
 using System.Threading.Tasks;
 using System.Windows.Forms;
 
@@ -15,11 +14,13 @@ namespace RsMcp.AddIn
     /// <summary>
     /// Painel de chat dentro do RobotStudio. Cada mensagem roda "claude -p" (Claude Code)
     /// em segundo plano na pasta de trabalho (Workspace), com o servidor MCP do RobotStudio;
-    /// a conversa continua com --continue. Imagens anexadas vao para a subpasta "imagens".
+    /// a conversa continua com --continue.
+    /// Anexos: imagens e PDF vao para "imagens" (o Claude le); CAD e .rslib vao para "anexos"
+    /// (o Claude guarda na biblioteca ou insere na estacao).
     /// </summary>
     public sealed class ChatPanel : UserControl
     {
-        private static readonly string[] AttachExtensions = { ".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp", ".pdf" };
+        private static readonly string[] ImageExtensions = { ".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp", ".pdf" };
 
         private readonly RichTextBox _history = new RichTextBox();
         private readonly TextBox _input = new TextBox();
@@ -28,7 +29,8 @@ namespace RsMcp.AddIn
         private readonly Button _attach = new Button();
         private readonly Button _newChat = new Button();
         private readonly Button _stop = new Button();
-        private readonly List<string> _attachments = new List<string>();
+        private readonly List<string> _images = new List<string>();
+        private readonly List<string> _components = new List<string>();
 
         private Process _running;
         private bool _busy;
@@ -67,7 +69,7 @@ namespace RsMcp.AddIn
             _stop.Text = "Parar";
             _stop.Enabled = false;
             _stop.Click += (s, e) => Stop();
-            _attach.Text = "Imagem...";
+            _attach.Text = "Anexar...";
             _attach.Click += (s, e) => PickFiles();
             _newChat.Text = "Nova conversa";
             _newChat.Click += (s, e) => { _hasConversation = false; _history.Clear(); ClearAttachments(); };
@@ -82,18 +84,20 @@ namespace RsMcp.AddIn
             Controls.Add(_history);
             Controls.Add(bottom);
 
-            Append("Claude", "Pronto. Digite o que fazer na estacao. Para montar um layout, anexe a imagem " +
-                             "(botao Imagem..., arrastar o arquivo ou Ctrl+V de um print).");
+            Append("Claude", "Pronto. Digite o que fazer na estacao. Anexe arquivos pelo botao Anexar..., " +
+                             "arrastando ou com Ctrl+V de um print: imagem de layout para montar a estacao, " +
+                             "CAD ou .rslib para guardar na sua biblioteca.");
         }
 
         // ---------- anexos ----------
 
         private void PickFiles()
         {
+            var patterns = ImageExtensions.Concat(LibraryFinder.ComponentExtensions).Select(ext => "*" + ext);
             using (var dialog = new OpenFileDialog
             {
                 Multiselect = true,
-                Filter = "Imagens e PDF|*.png;*.jpg;*.jpeg;*.gif;*.webp;*.bmp;*.pdf",
+                Filter = "Imagens, PDF, CAD e bibliotecas|" + string.Join(";", patterns),
             })
             {
                 if (dialog.ShowDialog(this) != DialogResult.OK) return;
@@ -104,13 +108,17 @@ namespace RsMcp.AddIn
         private void Attach(string source)
         {
             var ext = Path.GetExtension(source).ToLowerInvariant();
-            if (!AttachExtensions.Contains(ext))
+            if (LibraryFinder.IsComponentFile(source))
             {
-                Append("Erro", "Formato nao suportado: " + Path.GetFileName(source) + ". Use PNG, JPG ou PDF.");
+                SafeAttach(() => CopyComponent(source, ext));
                 return;
             }
-            var name = DateTime.Now.ToString("yyyyMMdd_HHmmss_") +
-                       Regex.Replace(Path.GetFileNameWithoutExtension(source), "[^A-Za-z0-9_-]", "_");
+            if (!ImageExtensions.Contains(ext))
+            {
+                Append("Erro", "Formato nao suportado: " + Path.GetFileName(source) + ". Use imagem, PDF, CAD ou .rslib.");
+                return;
+            }
+            var name = DateTime.Now.ToString("yyyyMMdd_HHmmss_") + Workspace.Slug(Path.GetFileNameWithoutExtension(source));
             SafeAttach(() =>
             {
                 if (ext != ".bmp")
@@ -124,6 +132,18 @@ namespace RsMcp.AddIn
                 using (var image = Image.FromFile(source)) image.Save(png, ImageFormat.Png);
                 return png;
             });
+        }
+
+        // CAD ou .rslib: mantem o nome original (diz o que e o componente), sem sobrescrever.
+        private static string CopyComponent(string source, string ext)
+        {
+            var name = Workspace.Slug(Path.GetFileNameWithoutExtension(source));
+            if (name.Length == 0) name = "componente";
+            var target = Path.Combine(Workspace.AttachmentsDir, name + ext);
+            for (var i = 2; File.Exists(target); i++)
+                target = Path.Combine(Workspace.AttachmentsDir, name + "_" + i + ext);
+            File.Copy(source, target);
+            return target;
         }
 
         private void AttachClipboardImage()
@@ -142,7 +162,11 @@ namespace RsMcp.AddIn
             try
             {
                 Directory.CreateDirectory(Workspace.ImagesDir);
-                AddAttachment(save());
+                Directory.CreateDirectory(Workspace.AttachmentsDir);
+                var file = save();
+                if (LibraryFinder.IsComponentFile(file)) _components.Add(file);
+                else _images.Add(Workspace.RelativeImagePath(file));
+                UpdateAttachLabel();
             }
             catch (Exception ex)
             {
@@ -150,23 +174,23 @@ namespace RsMcp.AddIn
             }
         }
 
-        private void AddAttachment(string file)
+        private void ClearAttachments()
         {
-            _attachments.Add(Workspace.RelativeImagePath(file));
+            _images.Clear();
+            _components.Clear();
             UpdateAttachLabel();
         }
 
-        private void ClearAttachments()
+        private IEnumerable<string> AttachmentNames()
         {
-            _attachments.Clear();
-            UpdateAttachLabel();
+            return _images.Concat(_components).Select(Path.GetFileName);
         }
 
         private void UpdateAttachLabel()
         {
-            _attachLabel.Text = _attachments.Count == 0
+            _attachLabel.Text = _images.Count + _components.Count == 0
                 ? ""
-                : "Anexos (clique para remover): " + string.Join(", ", _attachments.Select(Path.GetFileName));
+                : "Anexos (clique para remover): " + string.Join(", ", AttachmentNames());
         }
 
         // ---------- conversa ----------
@@ -174,17 +198,21 @@ namespace RsMcp.AddIn
         private async void Send()
         {
             var text = _input.Text.Trim();
-            if (_busy || (text.Length == 0 && _attachments.Count == 0)) return;
-            if (text.Length == 0) text = "Analise a imagem anexada.";
+            var hasAttachments = _images.Count + _components.Count > 0;
+            if (_busy || (text.Length == 0 && !hasAttachments)) return;
+            if (text.Length == 0) text = "Veja os anexos.";
 
             var prompt = text;
-            var shown = text;
-            if (_attachments.Count > 0)
-            {
+            if (_images.Count > 0)
                 prompt += Environment.NewLine + Environment.NewLine +
-                          "Imagens anexadas (abra com a ferramenta Read): " + string.Join(", ", _attachments);
-                shown += Environment.NewLine + "[anexos: " + string.Join(", ", _attachments.Select(Path.GetFileName)) + "]";
-            }
+                          "Imagens anexadas (abra com a ferramenta Read): " + string.Join(", ", _images);
+            if (_components.Count > 0)
+                prompt += Environment.NewLine + Environment.NewLine +
+                          "Arquivos de componente anexados (caminho completo): " + string.Join(", ", _components);
+            var shown = hasAttachments
+                ? text + Environment.NewLine + "[anexos: " + string.Join(", ", AttachmentNames()) + "]"
+                : text;
+
             _input.Clear();
             ClearAttachments();
             Append("Voce", shown);
