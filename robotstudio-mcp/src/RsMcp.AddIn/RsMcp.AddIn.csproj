@@ -43,6 +43,7 @@
   <ItemGroup>
     <None Update="RsMcp.AddIn.rsaddin" CopyToOutputDirectory="PreserveNewest" />
     <EmbeddedResource Include="Instrucoes.md" LogicalName="RsMcp.Instrucoes.md" />
+    <EmbeddedResource Include="gerar_fechamento.py" LogicalName="RsMcp.gerar_fechamento.py" />
   </ItemGroup>
 
 </Project>

@@ -73,6 +73,18 @@ Guarde barreiras de luz, IHMs, botoeiras, painéis de cerca e outros itens em `D
 - **Outras pastas**: inclua uma por linha em `Documents\RsMcp\pastas-biblioteca.txt`. Pode ser uma pasta de rede, para a equipe usar a mesma biblioteca.
 - **Dica**: deixe a origem do modelo no ponto que encosta no chão ou na fixação. Assim ele posiciona certo de primeira.
 
+## Fechamento de segurança
+
+No chat, peça a cerca (pode anexar o print com o traçado: vermelho = cerca, azul = porta, verde = abertura). O Claude segue o seu skill `fechamento-seguranca-celula`, com os seus padrões aprovados:
+1. lê as posições e o tamanho dos equipamentos direto da estação, sem precisar medir print;
+2. gera o STEP da cerca com o gerador do skill;
+3. importa na estação em 0,0,0 e confere pela imagem;
+4. avisa folgas apertadas, metros lineares e o que falta confirmar.
+
+Requisitos no PC (a instalação cuida disso):
+- o skill instalado em `%USERPROFILE%\.claude\skills\fechamento-seguranca-celula\SKILL.md`. Ele não vai para o GitHub, porque este repositório é público;
+- Python 3 e CadQuery (`py -m pip install cadquery`).
+
 ## Ferramentas MCP
 
 As ferramentas recebem mm e graus (Euler ZYX, como no Set Position).
@@ -89,6 +101,7 @@ As ferramentas recebem mm e graus (Euler ZYX, como no Set Position).
 | `save_to_library`, `set_library_notes` | Guarda na biblioteca um arquivo anexado no chat; grava as observações de um item |
 | `create_box`, `remove_component` | Bloco provisório para equipamento sem CAD (mesa, base, cerca...); remove componentes |
 | `capture_view` | Gera uma imagem da estação (topo, iso ou vista atual) para o Claude conferir o layout |
+| `generate_fence` | Gera o STEP do fechamento de segurança com o gerador do seu skill |
 | `create_controller` | Cria o controlador virtual pelo From Layout: abre o assistente e espera você clicar Finish |
 | `add_controller`, `list_virtual_controllers` | Liga a estação a um sistema RW6 já existente e o inicia, sem cliques |
 | `create_workobject`, `create_target`, `create_path` | Programação offline na task ativa |

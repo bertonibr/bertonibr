@@ -236,8 +236,9 @@ namespace RsMcp.AddIn
         private string RunClaude(string prompt, bool continueConversation)
         {
             // As instrucoes vem do CLAUDE.md da pasta de trabalho (ver Workspace).
+            // Leitura liberada: imagens anexadas e skills do usuario (ex.: fechamento de seguranca).
             var args = "-p --output-format text --mcp-config mcp.json" +
-                       " --allowedTools mcp__robotstudio \"Read(./imagens/**)\"" +
+                       " --allowedTools mcp__robotstudio \"Read(./imagens/**)\" \"Read(~/.claude/skills/**)\"" +
                        (continueConversation ? " --continue" : "");
 
             // cmd /c resolve tanto claude.exe quanto claude.cmd (instalacao via npm).

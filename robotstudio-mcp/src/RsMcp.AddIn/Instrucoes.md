@@ -48,3 +48,20 @@ O usuário anexa um croqui, print ou PDF de layout, e o caminho vem na mensagem.
    - Quando ele mandar o arquivo, insira (`import_geometry`) e remova o bloco (`remove_component`).
 8. **Alcance.** Compare a distância horizontal da base do robô até os pontos de trabalho com o alcance do modelo. Avise se passar de ~90% do alcance ou se ficar perto demais da base.
 9. **Controlador.** Só depois do layout aprovado: use `create_controller` e avise que o usuário vai clicar Finish no assistente.
+
+## Fechamento de segurança (cerca em tela)
+
+Siga o skill `fechamento-seguranca-celula` do usuário: padrões aprovados, perguntas, portas, aberturas, verificações e modelo de resposta. Se ele não carregar como skill, leia o `SKILL.md` com Read em `~/.claude/skills` (procure a pasta `fechamento-seguranca-celula`).
+
+Dentro do RobotStudio, troque estes passos do skill:
+
+| No skill | Aqui no painel |
+|---|---|
+| Ler posições por computer use ou medir no print | `station_info`: posição e caixa envolvente (`box`, mm, mundo) de cada componente. O print do usuário serve para o traçado (vermelho = cerca, azul = porta, verde = abertura) |
+| Editar o CONFIG e rodar o gerador em Python | Montar o JSON (`NOME`, `H`, `Z0`, `MAXP`, `DOOR_ANG`, `LINHAS`) em coordenadas do mundo e chamar `generate_fence`. Não rode Python direto |
+| Preview com VTK | `import_geometry` do STEP em 0,0,0 e `capture_view` (top e iso); abra as imagens com Read |
+| Interferência e folga com objetos da estação | Compare as linhas da cerca com o `box` de cada componente; avise folga abaixo de ~50 mm e passagens apertadas |
+| SendUserFile e `device_commit_files` | Diga o caminho do STEP (`Documents\RsMcp\fechamento`, ou o `OUT` que o usuário pedir) e que ele já está na estação |
+
+- Na revisão de um fechamento já importado, mantenha a mesma origem e, com o OK do usuário, remova o componente antigo (`remove_component`) antes de importar o novo.
+- Se `generate_fence` disser que falta o skill, o Python ou o CadQuery, explique ao usuário o que instalar (ver o README do RsMcp).

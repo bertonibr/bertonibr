@@ -61,6 +61,17 @@ Painel de chat (`ChatPanel.cs`) → `claude -p --mcp-config mcp.json` → `RsMcp
   - Se só houver método interno: explique ao usuário que pode quebrar quando o RobotStudio for atualizado e só implemente com o OK dele.
   - Nesse caso, implemente dentro do `create_controller` (parâmetros: nome, versão do RobotWare, opções), mantendo o assistente como alternativa se falhar.
 
+## Fechamento de segurança (skill do usuário)
+
+- O usuário tem o skill `fechamento-seguranca-celula` (padrões aprovados e gerador CadQuery) na conta do Claude. **Ele não vai para este repositório, que é público.**
+- O add-in grava `Documents\RsMcp\fechamento\gerar_fechamento.py`, que lê o código do gerador direto do `SKILL.md` instalado no PC e o roda com o JSON recebido pelo `generate_fence` (servidor MCP).
+- Na instalação:
+  1. Procure o skill: `Get-ChildItem $HOME\.claude\skills -Recurse -Filter SKILL.md | Select-String "fechamento-seguranca-celula" -List`. Se não achar, peça ao usuário o `SKILL.md` e salve em `$HOME\.claude\skills\fechamento-seguranca-celula\SKILL.md`.
+  2. Python 3 e CadQuery: `winget install -e --id Python.Python.3.12`, depois `py -m pip install cadquery`.
+  3. Teste: um JSON com `NOME` e uma linha simples (ex.: `["lado_a", [0,0], [0,-4000], [[null, "painel"]], true]`) em `py $HOME\Documents\RsMcp\fechamento\gerar_fechamento.py teste.json`. Deve sair o resumo do gerador (peças, postes, metros, interferências) e o STEP.
+  4. Depois, pelo MCP: `generate_fence`, `import_geometry` em 0,0,0 e `capture_view`.
+- Se o `claude -p` do painel não carregar o skill sozinho, ele pode ler o `SKILL.md` direto, porque o painel libera `Read(~/.claude/skills/**)`.
+
 ## Regras
 
 - Não salve, feche nem altere estações do usuário sem pedido. Teste numa estação nova.

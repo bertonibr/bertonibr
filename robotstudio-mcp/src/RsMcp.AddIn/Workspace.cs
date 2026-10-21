@@ -21,6 +21,8 @@ namespace RsMcp.AddIn
         // Arquivos de componente (CAD, .rslib) anexados no chat, antes de irem para a biblioteca.
         public static readonly string AttachmentsDir = Path.Combine(Dir, "anexos");
         public static readonly string LibraryDir = Path.Combine(Dir, "biblioteca");
+        // Gerador de fechamento (roda o skill do usuario) e os STEP gerados.
+        public static readonly string FenceDir = Path.Combine(Dir, "fechamento");
 
         private static readonly string LibraryFoldersFile = Path.Combine(Dir, "pastas-biblioteca.txt");
         private static readonly string[] ExampleCategories = { "Seguranca", "IHM", "Cerca", "Outros" };
@@ -51,12 +53,11 @@ namespace RsMcp.AddIn
             var json = "{\"mcpServers\":{\"robotstudio\":{\"command\":\"" + serverExe.Replace("\\", "\\\\") + "\",\"args\":[]}}}";
             File.WriteAllText(Path.Combine(Dir, "mcp.json"), json, utf8);
 
-            // Instrucoes do add-in: regravadas a cada versao. O CLAUDE.md e do usuario: so e criado se faltar.
-            using (var stream = typeof(Workspace).Assembly.GetManifestResourceStream("RsMcp.Instrucoes.md"))
-            using (var reader = new StreamReader(stream, Encoding.UTF8))
-            {
-                File.WriteAllText(Path.Combine(Dir, InstructionsFile), reader.ReadToEnd(), utf8);
-            }
+            // Arquivos do add-in, regravados a cada versao: instrucoes e gerador de fechamento.
+            // O CLAUDE.md e do usuario: so e criado se faltar.
+            WriteResource("RsMcp.Instrucoes.md", Path.Combine(Dir, InstructionsFile));
+            Directory.CreateDirectory(FenceDir);
+            WriteResource("RsMcp.gerar_fechamento.py", Path.Combine(FenceDir, "gerar_fechamento.py"));
             var claudeMd = Path.Combine(Dir, "CLAUDE.md");
             if (!File.Exists(claudeMd)) File.WriteAllText(claudeMd, DefaultClaudeMd, utf8);
 
@@ -67,6 +68,15 @@ namespace RsMcp.AddIn
                     Directory.CreateDirectory(Path.Combine(LibraryDir, category));
             }
             if (!File.Exists(LibraryFoldersFile)) File.WriteAllText(LibraryFoldersFile, DefaultLibraryFolders, utf8);
+        }
+
+        private static void WriteResource(string resource, string target)
+        {
+            using (var stream = typeof(Workspace).Assembly.GetManifestResourceStream(resource))
+            using (var reader = new StreamReader(stream, Encoding.UTF8))
+            {
+                File.WriteAllText(target, reader.ReadToEnd(), new UTF8Encoding(false));
+            }
         }
 
         // Pastas da biblioteca do usuario, lidas de pastas-biblioteca.txt.

@@ -112,7 +112,7 @@ namespace RsMcp.AddIn
             {
                 { "name", station.Name },
                 { "components", station.GraphicComponents.Cast<GraphicComponent>()
-                    .Select(c => new { name = c.Name, type = c.GetType().Name, pose = PoseOut(c.Transform.GlobalMatrix) }).ToList() },
+                    .Select(c => new { name = c.Name, type = c.GetType().Name, pose = PoseOut(c.Transform.GlobalMatrix), box = BoxOut(c) }).ToList() },
                 { "controllers", station.Irc5Controllers.Cast<RsIrc5Controller>().Select(c => c.Name).ToList() },
             };
             var task = station.ActiveTask;
@@ -495,6 +495,26 @@ namespace RsMcp.AddIn
                 x = Math.Round(t.x / Mm, 3), y = Math.Round(t.y / Mm, 3), z = Math.Round(t.z / Mm, 3),
                 rx = Math.Round(r.x / Deg, 4), ry = Math.Round(r.y / Deg, 4), rz = Math.Round(r.z / Deg, 4),
             };
+        }
+
+        // Caixa envolvente alinhada aos eixos do mundo (mm): folgas de layout e de cerca.
+        private static object BoxOut(GraphicComponent component)
+        {
+            try
+            {
+                // TODO conferir na API do RS 2025: campos min/max do BoundingBox.
+                var box = component.GetBoundingBox(true);
+                return new { min = MmOut(box.min), max = MmOut(box.max) };
+            }
+            catch (Exception)
+            {
+                return null; // componente sem geometria
+            }
+        }
+
+        private static double[] MmOut(Vector3 v)
+        {
+            return new[] { Math.Round(v.x / Mm, 1), Math.Round(v.y / Mm, 1), Math.Round(v.z / Mm, 1) };
         }
 
         private static double Num(Dictionary<string, object> p, string key, double fallback = 0.0)
