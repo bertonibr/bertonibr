@@ -3,7 +3,7 @@
 Projeto escrito numa sessão na nuvem, sem Windows nem RobotStudio:
 - `src/RsMcp.Server` (.NET 8, servidor MCP stdio): compilado e testado lá.
 - `src/RsMcp.AddIn` (.NET 4.8, add-in do RobotStudio): **nunca compilado inteiro**. As chamadas da API do RobotStudio e do PC SDK foram escritas de memória; valide-as aqui contra as DLLs reais.
-  - `ChatPanel.cs`, `Workspace.cs`, `LibraryFinder.cs` e `PipeServer.cs` não usam a API da ABB e já compilaram para net48 na nuvem.
+  - `ChatPanel.cs`, `Workspace.cs`, `LibraryFinder.cs` e `PipeServer.cs` não usam a API da ABB e já compilaram para net48 na nuvem. A busca da biblioteca do usuário (`FindUser`) foi testada lá com .NET 8.
 
 Ambiente do usuário: Windows, RobotStudio 2025, controlador IRC5 com RobotWare 6. O usuário fala português e quer respostas curtas e objetivas.
 
@@ -19,7 +19,8 @@ Painel de chat (`ChatPanel.cs`) → `claude -p --mcp-config mcp.json` → `RsMcp
   - `mcp.json`, apontando para `<pasta do add-in>\server\RsMcp.Server.exe`;
   - `rsmcp-instrucoes.md`, regravado a partir de `Instrucoes.md` (recurso embutido), com as regras do assistente e o fluxo de layout por imagem;
   - `CLAUDE.md`, criado só se faltar: é do usuário (padrões da empresa) e importa as instruções;
-  - `imagens\`, onde ficam os anexos do chat e as capturas do `capture_view`.
+  - `imagens\`, onde ficam os anexos do chat e as capturas do `capture_view`;
+  - `biblioteca\` (com categorias de exemplo) e `pastas-biblioteca.txt`: biblioteca de componentes do usuário, lida pelo `list_my_library`.
 - O painel roda `claude -p` nessa pasta, com permissão só para `mcp__robotstudio` e `Read(./imagens/**)`.
 
 ## Tarefa: instalar e validar
@@ -45,7 +46,7 @@ Painel de chat (`ChatPanel.cs`) → `claude -p --mcp-config mcp.json` → `RsMcp
    1. Abrir o RobotStudio. A aba "Claude" deve aparecer e o Output deve mostrar `[RsMcp] RsMcp carregado`.
    2. Conferir se `Documents\RsMcp` tem `mcp.json`, `rsmcp-instrucoes.md`, `CLAUDE.md` e `imagens\`.
    3. No terminal, em `$HOME\Documents\RsMcp`: `claude -p "use a ferramenta ping do robotstudio" --mcp-config mcp.json --allowedTools mcp__robotstudio`.
-   4. Validar as ferramentas em ordem: `new_station`, `list_library` (deve achar os `.rslib` de robôs IRB; se não achar, descubra a pasta da ABB Library e inclua em `LibraryFinder`), `add_library`, `create_box`, `capture_view`, `remove_component`, `create_controller`, `create_workobject`, `create_target`, `create_path`, `auto_configure`, `sync_to_rapid`, `list_rapid_modules`, `read_rapid_module`, `write_rapid_module`, `simulation`. Depois `list_virtual_controllers` e `add_controller` numa segunda estação.
+   4. Validar as ferramentas em ordem: `new_station`, `list_library` (deve achar os `.rslib` de robôs IRB; se não achar, descubra a pasta da ABB Library e inclua em `LibraryFinder`), `add_library`, `list_my_library` (ponha um `.rslib` e um STEP de teste em `biblioteca\IHM`), `create_box`, `capture_view`, `remove_component`, `create_controller`, `create_workobject`, `create_target`, `create_path`, `auto_configure`, `sync_to_rapid`, `list_rapid_modules`, `read_rapid_module`, `write_rapid_module`, `simulation`. Depois `list_virtual_controllers` e `add_controller` numa segunda estação.
    5. `capture_view` com `view=top` deve mostrar a estação vista de cima. Se vier de baixo, em branco ou cortada, ajuste o `lookDirection` e o zoom em `CaptureView` até ficar certo.
    6. Por último, testar o painel de chat: anexar uma imagem (botão, arrastar e Ctrl+V) e pedir para montar um layout simples.
 

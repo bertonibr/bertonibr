@@ -1,18 +1,25 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using System.Text;
 
 namespace RsMcp.AddIn
 {
     /// <summary>
-    /// Pasta de trabalho do Claude (Documents\RsMcp): mcp.json, instrucoes, CLAUDE.md e imagens.
+    /// Pasta de trabalho do Claude (Documents\RsMcp): mcp.json, instrucoes, CLAUDE.md, imagens e biblioteca.
     /// O painel roda o Claude Code nesta pasta, entao o CLAUDE.md daqui vale para toda conversa.
     /// </summary>
     public static class Workspace
     {
+        // Caminho absoluto: os caminhos da biblioteca vao para o RobotStudio, que roda em outra pasta.
         public static readonly string Dir =
-            Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments), "RsMcp");
+            Path.GetFullPath(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments), "RsMcp"));
         public static readonly string ImagesDir = Path.Combine(Dir, "imagens");
+        public static readonly string LibraryDir = Path.Combine(Dir, "biblioteca");
+
+        private static readonly string LibraryFoldersFile = Path.Combine(Dir, "pastas-biblioteca.txt");
+        private static readonly string[] ExampleCategories = { "Seguranca", "IHM", "Cerca", "Outros" };
 
         private const string InstructionsFile = "rsmcp-instrucoes.md";
 
@@ -21,6 +28,12 @@ namespace RsMcp.AddIn
             "@" + InstructionsFile + "\n\n" +
             "## Padroes da empresa (edite a vontade)\n\n" +
             "<!-- Ex.: altura padrao das mesas, robos e posicionadores mais usados, distancia minima da cerca. -->\n";
+
+        private const string DefaultLibraryFolders =
+            "# Pastas da sua biblioteca de componentes, uma por linha (caminho completo ou relativo a esta pasta).\n" +
+            "# Pode ser uma pasta de rede, para a equipe usar a mesma biblioteca.\n" +
+            "# Subpastas viram categorias. Um .txt com o mesmo nome do arquivo guarda observacoes (ex.: altura de montagem).\n" +
+            "biblioteca\n";
 
         public static void Prepare()
         {
@@ -41,6 +54,25 @@ namespace RsMcp.AddIn
             }
             var claudeMd = Path.Combine(Dir, "CLAUDE.md");
             if (!File.Exists(claudeMd)) File.WriteAllText(claudeMd, DefaultClaudeMd, utf8);
+
+            // Biblioteca do usuario: na primeira vez cria a pasta com categorias de exemplo.
+            if (!Directory.Exists(LibraryDir))
+            {
+                foreach (var category in ExampleCategories)
+                    Directory.CreateDirectory(Path.Combine(LibraryDir, category));
+            }
+            if (!File.Exists(LibraryFoldersFile)) File.WriteAllText(LibraryFoldersFile, DefaultLibraryFolders, utf8);
+        }
+
+        // Pastas da biblioteca do usuario, lidas de pastas-biblioteca.txt.
+        public static IEnumerable<string> UserLibraryFolders()
+        {
+            if (!File.Exists(LibraryFoldersFile)) return new[] { LibraryDir };
+            return File.ReadAllLines(LibraryFoldersFile)
+                .Select(line => line.Trim())
+                .Where(line => line.Length > 0 && !line.StartsWith("#"))
+                .Select(line => Path.IsPathRooted(line) ? line : Path.Combine(Dir, line))
+                .ToList();
         }
 
         // Caminho relativo a pasta de trabalho, como o Claude deve abrir com Read.

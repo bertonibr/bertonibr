@@ -57,6 +57,15 @@ public static class RobotStudioTools
         CancellationToken ct = default)
         => bridge.CallAsync("list_library", new { filter, refresh }, ct);
 
+    [McpServerTool(Name = "list_my_library"), Description(
+        "Lista os componentes da biblioteca do usuario (barreira de luz, IHM, botoeira, cerca, dispositivos...): " +
+        "categoria, nome, caminho, ferramenta para inserir (add_library ou import_geometry) e observacoes do usuario. " +
+        "Consulte antes de criar bloco provisorio. Filtro opcional por partes do nome ou da categoria.")]
+    public static Task<string> ListMyLibrary(BridgeClient bridge,
+        [Description("Partes do nome ou da categoria separadas por espaco")] string filter = "",
+        CancellationToken ct = default)
+        => bridge.CallAsync("list_my_library", new { filter }, ct);
+
     [McpServerTool(Name = "create_box"), Description(
         "Cria um bloco (caixa) para representar equipamento sem CAD: mesa, base, dispositivo, cerca, esteira. " +
         "A origem fica no centro da face de baixo; x, y, z posicionam essa origem no mundo. mm e graus.")]

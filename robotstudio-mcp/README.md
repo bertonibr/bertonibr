@@ -61,6 +61,16 @@ Depois abra o RobotStudio e use a aba **Claude > Abrir chat**. Se a aba não apa
 
 Para registrar padrões da sua empresa (altura das mesas, robôs mais usados, distância da cerca), edite `Documents\RsMcp\CLAUDE.md`. O add-in não sobrescreve esse arquivo.
 
+## Sua biblioteca de componentes
+
+Guarde barreiras de luz, IHMs, botoeiras, painéis de cerca e outros itens em `Documents\RsMcp\biblioteca`. O Claude procura ali antes de criar um bloco provisório; quando acha o item, só pergunta onde colocar e quantos são.
+
+- **Formatos**: `.rslib` ou CAD (STEP, SAT, STL, glb...).
+- **Categorias**: cada subpasta vira uma categoria (já vêm `Seguranca`, `IHM`, `Cerca` e `Outros`).
+- **Observações**: um `.txt` com o mesmo nome do arquivo, por exemplo `Barreira_Sick_C4000.txt` com "Altura: 300 mm do chão. Fixar na coluna da cerca." O Claude segue essas observações.
+- **Outras pastas**: inclua uma por linha em `Documents\RsMcp\pastas-biblioteca.txt`. Pode ser uma pasta de rede, para a equipe usar a mesma biblioteca.
+- **Dica**: deixe a origem do modelo no ponto que encosta no chão ou na fixação. Assim ele posiciona certo de primeira.
+
 ## Ferramentas MCP
 
 As ferramentas recebem mm e graus (Euler ZYX, como no Set Position).
@@ -73,6 +83,7 @@ As ferramentas recebem mm e graus (Euler ZYX, como no Set Position).
 | `import_geometry` | Importa CAD e posiciona |
 | `set_position`, `attach` | Posiciona um componente; anexa um componente a um mecanismo |
 | `list_library` | Procura robôs, posicionadores e trilhos (`.rslib`) instalados no PC |
+| `list_my_library` | Lista a sua biblioteca de componentes, com categoria e observações |
 | `create_box`, `remove_component` | Bloco provisório para equipamento sem CAD (mesa, base, cerca...); remove componentes |
 | `capture_view` | Gera uma imagem da estação (topo, iso ou vista atual) para o Claude conferir o layout |
 | `create_controller` | Cria o controlador virtual pelo From Layout: abre o assistente e espera você clicar Finish |
