@@ -18,6 +18,9 @@ namespace RsMcp.AddIn
         // Chamado pelo RobotStudio na thread da UI.
         public static void AddinMain()
         {
+            try { Workspace.Prepare(); }
+            catch (Exception ex) { Log("Falha ao preparar a pasta de trabalho: " + ex.Message); }
+
             var ui = new UiInvoker();
             var commands = new CommandDispatcher(ui);
             _pipe = new PipeServer(commands.Dispatch);

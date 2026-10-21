@@ -42,6 +42,7 @@
 
   <ItemGroup>
     <None Update="RsMcp.AddIn.rsaddin" CopyToOutputDirectory="PreserveNewest" />
+    <EmbeddedResource Include="Instrucoes.md" LogicalName="RsMcp.Instrucoes.md" />
   </ItemGroup>
 
 </Project>

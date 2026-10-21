@@ -2,7 +2,8 @@
 
 Projeto escrito numa sessão na nuvem, sem Windows nem RobotStudio:
 - `src/RsMcp.Server` (.NET 8, servidor MCP stdio): compilado e testado lá.
-- `src/RsMcp.AddIn` (.NET 4.8, add-in do RobotStudio): **nunca compilado**. As chamadas da API do RobotStudio e do PC SDK foram escritas de memória; valide-as aqui contra as DLLs reais.
+- `src/RsMcp.AddIn` (.NET 4.8, add-in do RobotStudio): **nunca compilado inteiro**. As chamadas da API do RobotStudio e do PC SDK foram escritas de memória; valide-as aqui contra as DLLs reais.
+  - `ChatPanel.cs`, `Workspace.cs`, `LibraryFinder.cs` e `PipeServer.cs` não usam a API da ABB e já compilaram para net48 na nuvem.
 
 Ambiente do usuário: Windows, RobotStudio 2025, controlador IRC5 com RobotWare 6. O usuário fala português e quer respostas curtas e objetivas.
 
@@ -14,7 +15,12 @@ Painel de chat (`ChatPanel.cs`) → `claude -p --mcp-config mcp.json` → `RsMcp
 - Uma linha JSON por requisição: `{"method","params"}` → `{"ok","result"|"error"}`.
 - Ferramentas recebem mm e graus (Euler ZYX); o add-in converte para m e rad.
 - Comandos de estação rodam na thread da UI (`UiInvoker`). RAPID (`RapidCommands.cs`, PC SDK) roda na thread do pipe.
-- O `ChatPanel` grava `Documents\RsMcp\mcp.json` ao abrir, apontando para `<pasta do add-in>\server\RsMcp.Server.exe`.
+- Ao carregar, o add-in prepara `Documents\RsMcp` (`Workspace.cs`):
+  - `mcp.json`, apontando para `<pasta do add-in>\server\RsMcp.Server.exe`;
+  - `rsmcp-instrucoes.md`, regravado a partir de `Instrucoes.md` (recurso embutido), com as regras do assistente e o fluxo de layout por imagem;
+  - `CLAUDE.md`, criado só se faltar: é do usuário (padrões da empresa) e importa as instruções;
+  - `imagens\`, onde ficam os anexos do chat e as capturas do `capture_view`.
+- O painel roda `claude -p` nessa pasta, com permissão só para `mcp__robotstudio` e `Read(./imagens/**)`.
 
 ## Tarefa: instalar e validar
 
@@ -27,6 +33,7 @@ Painel de chat (`ChatPanel.cs`) → `claude -p --mcp-config mcp.json` → `RsMcp
    - Corrija os erros pelas assinaturas públicas reais: IntelliSense ou Object Browser do Visual Studio, documentação do SDK (developercenter.robotstudio.com) ou reflexão em PowerShell (`Add-Type -Path` + `GetMethods()`).
    - Maior risco (marcado com `TODO conferir` ou escrito sem validação):
      - estação: `Part.Load`, `Station.Save`/`SaveAs`, construtor de `RsMoveInstruction`, `Frame.Matrix`/`UserFrame.Matrix`, `Matrix4.EulerZYX`, `Simulator.Start`/`Stop`;
+     - layout: `Body.CreateSolidBox(Matrix4, Vector3)`, `Part.Color`, `GraphicComponents.Remove`, `GraphicControl.ActiveGraphicControl`, `ScreenShot(ProjectObject, int, int, ScreenshotOptions, Vector3, float)`;
      - interface: `UiCommandIds`, `CommandBarButton.Execute`, varredura do ribbon (`UIEnvironment.RibbonTabs`, `RibbonGroup.Controls`, `CommandBarPopup.Controls`, `CommandBarControl.Id`/`Caption`), construtor de `ToolWindow`;
      - controlador: `new RsIrc5Controller(path)`, `station.Irc5Controllers`, `StartAsync(VirtualControllerRestartMode, IEnumerable<Mechanism>, bool, bool)`, `RsIrc5Controller.SystemId`, `ControllerManager.VirtualControllerReferences`;
      - PC SDK: `Controller.Connect`, `ControllerInfo.SystemId`, `Module.SaveToFile`, `FileSystem.PutFile`/`GetFile`.
@@ -36,10 +43,11 @@ Painel de chat (`ChatPanel.cs`) → `claude -p --mcp-config mcp.json` → `RsMcp
    - Se houver pasta por usuário, rode você mesmo.
 5. **Testar com o usuário**, numa estação de teste nova:
    1. Abrir o RobotStudio. A aba "Claude" deve aparecer e o Output deve mostrar `[RsMcp] RsMcp carregado`.
-   2. Abrir o chat (isso grava o `mcp.json`).
+   2. Conferir se `Documents\RsMcp` tem `mcp.json`, `rsmcp-instrucoes.md`, `CLAUDE.md` e `imagens\`.
    3. No terminal, em `$HOME\Documents\RsMcp`: `claude -p "use a ferramenta ping do robotstudio" --mcp-config mcp.json --allowedTools mcp__robotstudio`.
-   4. Validar as ferramentas em ordem: `new_station`, `add_library` (procure um `.rslib` de robô IRB), `create_controller`, `create_workobject`, `create_target`, `create_path`, `auto_configure`, `sync_to_rapid`, `list_rapid_modules`, `read_rapid_module`, `write_rapid_module`, `simulation`. Depois `list_virtual_controllers` e `add_controller` numa segunda estação.
-   5. Por último, testar o painel de chat dentro do RobotStudio.
+   4. Validar as ferramentas em ordem: `new_station`, `list_library` (deve achar os `.rslib` de robôs IRB; se não achar, descubra a pasta da ABB Library e inclua em `LibraryFinder`), `add_library`, `create_box`, `capture_view`, `remove_component`, `create_controller`, `create_workobject`, `create_target`, `create_path`, `auto_configure`, `sync_to_rapid`, `list_rapid_modules`, `read_rapid_module`, `write_rapid_module`, `simulation`. Depois `list_virtual_controllers` e `add_controller` numa segunda estação.
+   5. `capture_view` com `view=top` deve mostrar a estação vista de cima. Se vier de baixo, em branco ou cortada, ajuste o `lookDirection` e o zoom em `CaptureView` até ficar certo.
+   6. Por último, testar o painel de chat: anexar uma imagem (botão, arrastar e Ctrl+V) e pedir para montar um layout simples.
 
 ## Controlador virtual (pedido do usuário: o Claude deve criar o controlador)
 

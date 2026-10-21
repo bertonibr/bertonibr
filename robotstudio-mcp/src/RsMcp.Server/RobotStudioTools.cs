@@ -48,6 +48,41 @@ public static class RobotStudioTools
         CancellationToken ct = default)
         => bridge.CallAsync("set_position", new { name, x, y, z, rx, ry, rz }, ct);
 
+    [McpServerTool(Name = "list_library"), Description(
+        "Procura bibliotecas .rslib (robos, posicionadores, trilhos) instaladas no PC. " +
+        "Filtre por partes do nome, ex.: \"2600\" ou \"IRBP A\". Use o caminho retornado em add_library.")]
+    public static Task<string> ListLibrary(BridgeClient bridge,
+        [Description("Partes do nome separadas por espaco")] string filter = "",
+        [Description("Refaz a busca no disco")] bool refresh = false,
+        CancellationToken ct = default)
+        => bridge.CallAsync("list_library", new { filter, refresh }, ct);
+
+    [McpServerTool(Name = "create_box"), Description(
+        "Cria um bloco (caixa) para representar equipamento sem CAD: mesa, base, dispositivo, cerca, esteira. " +
+        "A origem fica no centro da face de baixo; x, y, z posicionam essa origem no mundo. mm e graus.")]
+    public static Task<string> CreateBox(BridgeClient bridge,
+        [Description("Nome unico no layout")] string name,
+        [Description("Comprimento em X (mm)")] double length,
+        [Description("Largura em Y (mm)")] double width,
+        [Description("Altura em Z (mm)")] double height,
+        double x = 0, double y = 0, double z = 0,
+        [Description("Rotacao em torno de Z (graus)")] double rz = 0,
+        [Description("Cor em hex, ex.: #FFC000 (opcional)")] string? color = null,
+        CancellationToken ct = default)
+        => bridge.CallAsync("create_box", new { name, length, width, height, x, y, z, rz, color }, ct);
+
+    [McpServerTool(Name = "remove_component"), Description(
+        "Remove um componente da estacao. Nao remova robo ligado a controlador sem confirmar com o usuario.")]
+    public static Task<string> RemoveComponent(BridgeClient bridge, string name, CancellationToken ct = default)
+        => bridge.CallAsync("remove_component", new { name }, ct);
+
+    [McpServerTool(Name = "capture_view"), Description(
+        "Gera uma imagem PNG da estacao para conferir o layout. view: top (vista de topo), iso ou current (vista atual). " +
+        "Retorna o caminho do arquivo; abra com a ferramenta Read.")]
+    public static Task<string> CaptureView(BridgeClient bridge,
+        string view = "top", int width = 1600, int height = 1000, CancellationToken ct = default)
+        => bridge.CallAsync("capture_view", new { view, width, height }, ct);
+
     [McpServerTool(Name = "attach"), Description("Anexa um componente a outro (ex.: tocha no robo). Leva o filho ate o ponto de montagem.")]
     public static Task<string> Attach(BridgeClient bridge,
         [Description("Componente filho")] string child,

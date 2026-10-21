@@ -51,6 +51,16 @@ cd robotstudio-mcp
 
 Depois abra o RobotStudio e use a aba **Claude > Abrir chat**. Se a aba não aparecer, carregue o `.rsaddin` manualmente pela aba **Add-Ins**, ou confira no manual do SDK qual pasta de add-ins o RobotStudio 2025 lê.
 
+## Montar layout a partir de imagem
+
+1. No chat, anexe a imagem do layout: botão **Imagem...**, arrastar o arquivo ou **Ctrl+V** de um print. Aceita PNG, JPG e PDF.
+2. O Claude lista o que identificou e pergunta o que faltar, até 3 perguntas por vez e sempre com uma sugestão: modelo do robô, origem, escala, alturas.
+3. Ele monta em etapas (robô → posicionador e mesas → peça → cerca). Depois de cada etapa, tira uma imagem da estação, compara com a sua e mostra o que fez.
+4. Equipamento sem CAD vira um bloco provisório colorido, que é trocado pelo CAD quando você mandar o arquivo.
+5. Com o layout aprovado, ele cria o controlador.
+
+Para registrar padrões da sua empresa (altura das mesas, robôs mais usados, distância da cerca), edite `Documents\RsMcp\CLAUDE.md`. O add-in não sobrescreve esse arquivo.
+
 ## Ferramentas MCP
 
 As ferramentas recebem mm e graus (Euler ZYX, como no Set Position).
@@ -62,6 +72,9 @@ As ferramentas recebem mm e graus (Euler ZYX, como no Set Position).
 | `add_library` | Adiciona um `.rslib` (robô, posicionador...) e posiciona |
 | `import_geometry` | Importa CAD e posiciona |
 | `set_position`, `attach` | Posiciona um componente; anexa um componente a um mecanismo |
+| `list_library` | Procura robôs, posicionadores e trilhos (`.rslib`) instalados no PC |
+| `create_box`, `remove_component` | Bloco provisório para equipamento sem CAD (mesa, base, cerca...); remove componentes |
+| `capture_view` | Gera uma imagem da estação (topo, iso ou vista atual) para o Claude conferir o layout |
 | `create_controller` | Cria o controlador virtual pelo From Layout: abre o assistente e espera você clicar Finish |
 | `add_controller`, `list_virtual_controllers` | Liga a estação a um sistema RW6 já existente e o inicia, sem cliques |
 | `create_workobject`, `create_target`, `create_path` | Programação offline na task ativa |
@@ -76,11 +89,12 @@ O SDK da ABB não tem função pública para o "From Layout". Por isso o `create
 ## Estado
 
 - `RsMcp.Server` compila e foi testado via stdio: lista as ferramentas e responde quando o RobotStudio não está aberto.
-- `RsMcp.AddIn` ainda **não foi compilado**, porque depende das DLLs do RobotStudio, que só existem no Windows. Os pontos marcados com `TODO conferir` usam chamadas que precisam ser validadas contra o SDK 2025:
+- `RsMcp.AddIn` ainda **não foi compilado inteiro**, porque depende das DLLs do RobotStudio, que só existem no Windows. As partes sem API da ABB (chat, anexos, busca de bibliotecas e pipe) já compilam para .NET 4.8. Os pontos marcados com `TODO conferir` usam chamadas que precisam ser validadas contra o SDK 2025:
   - importação de geometria (`Part.Load`);
   - salvar a estação (`Save`/`SaveAs`);
   - IDs dos comandos da UI (`UiCommandIds`) para sync, auto configuration e From Layout;
-  - controlador virtual (`RsIrc5Controller`, `StartAsync`, `ControllerManager`).
+  - controlador virtual (`RsIrc5Controller`, `StartAsync`, `ControllerManager`);
+  - layout: cor do bloco (`Part.Color`) e captura da vista de topo (`ScreenShot`).
 
 ## Usar sem o painel (opcional)
 

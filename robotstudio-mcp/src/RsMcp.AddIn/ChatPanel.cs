@@ -1,8 +1,12 @@
 using System;
+using System.Collections.Generic;
 using System.Diagnostics;
 using System.Drawing;
+using System.Drawing.Imaging;
 using System.IO;
+using System.Linq;
 using System.Text;
+using System.Text.RegularExpressions;
 using System.Threading.Tasks;
 using System.Windows.Forms;
 
@@ -10,80 +14,180 @@ namespace RsMcp.AddIn
 {
     /// <summary>
     /// Painel de chat dentro do RobotStudio. Cada mensagem roda "claude -p" (Claude Code)
-    /// em segundo plano com o servidor MCP do RobotStudio; a conversa continua com --continue.
+    /// em segundo plano na pasta de trabalho (Workspace), com o servidor MCP do RobotStudio;
+    /// a conversa continua com --continue. Imagens anexadas vao para a subpasta "imagens".
     /// </summary>
     public sealed class ChatPanel : UserControl
     {
-        private const string SystemPrompt =
-            "Voce opera o ABB RobotStudio 2025 pelas ferramentas mcp__robotstudio. Controlador IRC5, RobotWare 6. " +
-            "Unidades: mm e graus. Antes de alterar, rode station_info. RAPID sem acentos. " +
-            "Sem controlador na estacao: posicione os mecanismos e use create_controller (o usuario so clica Finish) " +
-            "ou add_controller com um sistema existente (veja list_virtual_controllers). Responda em portugues, curto.";
+        private static readonly string[] AttachExtensions = { ".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp", ".pdf" };
 
         private readonly RichTextBox _history = new RichTextBox();
         private readonly TextBox _input = new TextBox();
+        private readonly Label _attachLabel = new Label();
         private readonly Button _send = new Button();
+        private readonly Button _attach = new Button();
         private readonly Button _newChat = new Button();
         private readonly Button _stop = new Button();
+        private readonly List<string> _attachments = new List<string>();
 
-        private readonly string _workDir;
         private Process _running;
+        private bool _busy;
         private bool _hasConversation;
 
         public ChatPanel()
         {
-            _workDir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments), "RsMcp");
-            Directory.CreateDirectory(_workDir);
-            WriteMcpConfig();
-
             _history.Dock = DockStyle.Fill;
             _history.ReadOnly = true;
             _history.BackColor = SystemColors.Window;
             _history.Font = new Font("Segoe UI", 9f);
 
             _input.Multiline = true;
-            _input.Height = 70;
             _input.Dock = DockStyle.Fill;
+            _input.AllowDrop = true;
             _input.KeyDown += (s, e) =>
             {
                 if (e.KeyCode == Keys.Enter && !e.Shift) { e.SuppressKeyPress = true; Send(); }
+                else if (e.Control && e.KeyCode == Keys.V && Clipboard.ContainsImage()) { e.SuppressKeyPress = true; AttachClipboardImage(); }
             };
+            _input.DragEnter += (s, e) =>
+                e.Effect = e.Data.GetDataPresent(DataFormats.FileDrop) ? DragDropEffects.Copy : DragDropEffects.None;
+            _input.DragDrop += (s, e) =>
+            {
+                foreach (var file in (string[])e.Data.GetData(DataFormats.FileDrop)) Attach(file);
+            };
+
+            _attachLabel.Dock = DockStyle.Top;
+            _attachLabel.Height = 18;
+            _attachLabel.ForeColor = SystemColors.GrayText;
+            _attachLabel.Cursor = Cursors.Hand;
+            _attachLabel.Click += (s, e) => ClearAttachments();
 
             _send.Text = "Enviar";
             _send.Click += (s, e) => Send();
             _stop.Text = "Parar";
             _stop.Enabled = false;
             _stop.Click += (s, e) => Stop();
+            _attach.Text = "Imagem...";
+            _attach.Click += (s, e) => PickFiles();
             _newChat.Text = "Nova conversa";
-            _newChat.Click += (s, e) => { _hasConversation = false; _history.Clear(); };
+            _newChat.Click += (s, e) => { _hasConversation = false; _history.Clear(); ClearAttachments(); };
 
             var buttons = new FlowLayoutPanel { Dock = DockStyle.Bottom, Height = 32, FlowDirection = FlowDirection.RightToLeft };
-            buttons.Controls.AddRange(new Control[] { _send, _stop, _newChat });
-            var bottom = new Panel { Dock = DockStyle.Bottom, Height = 104 };
+            buttons.Controls.AddRange(new Control[] { _send, _stop, _attach, _newChat });
+            var bottom = new Panel { Dock = DockStyle.Bottom, Height = 122 };
             bottom.Controls.Add(_input);
             bottom.Controls.Add(buttons);
+            bottom.Controls.Add(_attachLabel);
 
             Controls.Add(_history);
             Controls.Add(bottom);
 
-            Append("Claude", "Pronto. Digite o que fazer na estacao (Enter envia, Shift+Enter quebra linha).");
+            Append("Claude", "Pronto. Digite o que fazer na estacao. Para montar um layout, anexe a imagem " +
+                             "(botao Imagem..., arrastar o arquivo ou Ctrl+V de um print).");
         }
 
-        // mcp.json aponta para o servidor publicado na pasta "server" ao lado do add-in.
-        private void WriteMcpConfig()
+        // ---------- anexos ----------
+
+        private void PickFiles()
         {
-            var addinDir = Path.GetDirectoryName(typeof(ChatPanel).Assembly.Location);
-            var serverExe = Path.Combine(addinDir, "server", "RsMcp.Server.exe");
-            var json = "{\"mcpServers\":{\"robotstudio\":{\"command\":\"" + serverExe.Replace("\\", "\\\\") + "\",\"args\":[]}}}";
-            File.WriteAllText(Path.Combine(_workDir, "mcp.json"), json, new UTF8Encoding(false));
+            using (var dialog = new OpenFileDialog
+            {
+                Multiselect = true,
+                Filter = "Imagens e PDF|*.png;*.jpg;*.jpeg;*.gif;*.webp;*.bmp;*.pdf",
+            })
+            {
+                if (dialog.ShowDialog(this) != DialogResult.OK) return;
+                foreach (var file in dialog.FileNames) Attach(file);
+            }
         }
+
+        private void Attach(string source)
+        {
+            var ext = Path.GetExtension(source).ToLowerInvariant();
+            if (!AttachExtensions.Contains(ext))
+            {
+                Append("Erro", "Formato nao suportado: " + Path.GetFileName(source) + ". Use PNG, JPG ou PDF.");
+                return;
+            }
+            var name = DateTime.Now.ToString("yyyyMMdd_HHmmss_") +
+                       Regex.Replace(Path.GetFileNameWithoutExtension(source), "[^A-Za-z0-9_-]", "_");
+            SafeAttach(() =>
+            {
+                if (ext != ".bmp")
+                {
+                    var copy = Path.Combine(Workspace.ImagesDir, name + ext);
+                    File.Copy(source, copy, true);
+                    return copy;
+                }
+                // O Claude nao le BMP: converte para PNG.
+                var png = Path.Combine(Workspace.ImagesDir, name + ".png");
+                using (var image = Image.FromFile(source)) image.Save(png, ImageFormat.Png);
+                return png;
+            });
+        }
+
+        private void AttachClipboardImage()
+        {
+            SafeAttach(() =>
+            {
+                var png = Path.Combine(Workspace.ImagesDir, DateTime.Now.ToString("yyyyMMdd_HHmmss") + "_colado.png");
+                using (var image = Clipboard.GetImage()) image.Save(png, ImageFormat.Png);
+                return png;
+            });
+        }
+
+        // Erro ao anexar aparece no chat em vez de derrubar o evento da interface.
+        private void SafeAttach(Func<string> save)
+        {
+            try
+            {
+                Directory.CreateDirectory(Workspace.ImagesDir);
+                AddAttachment(save());
+            }
+            catch (Exception ex)
+            {
+                Append("Erro", "Nao foi possivel anexar: " + ex.Message);
+            }
+        }
+
+        private void AddAttachment(string file)
+        {
+            _attachments.Add(Workspace.RelativeImagePath(file));
+            UpdateAttachLabel();
+        }
+
+        private void ClearAttachments()
+        {
+            _attachments.Clear();
+            UpdateAttachLabel();
+        }
+
+        private void UpdateAttachLabel()
+        {
+            _attachLabel.Text = _attachments.Count == 0
+                ? ""
+                : "Anexos (clique para remover): " + string.Join(", ", _attachments.Select(Path.GetFileName));
+        }
+
+        // ---------- conversa ----------
 
         private async void Send()
         {
-            var prompt = _input.Text.Trim();
-            if (prompt.Length == 0 || _running != null) return;
+            var text = _input.Text.Trim();
+            if (_busy || (text.Length == 0 && _attachments.Count == 0)) return;
+            if (text.Length == 0) text = "Analise a imagem anexada.";
+
+            var prompt = text;
+            var shown = text;
+            if (_attachments.Count > 0)
+            {
+                prompt += Environment.NewLine + Environment.NewLine +
+                          "Imagens anexadas (abra com a ferramenta Read): " + string.Join(", ", _attachments);
+                shown += Environment.NewLine + "[anexos: " + string.Join(", ", _attachments.Select(Path.GetFileName)) + "]";
+            }
             _input.Clear();
-            Append("Voce", prompt);
+            ClearAttachments();
+            Append("Voce", shown);
             SetBusy(true);
             try
             {
@@ -103,14 +207,15 @@ namespace RsMcp.AddIn
 
         private string RunClaude(string prompt, bool continueConversation)
         {
-            var args = "-p --output-format text --mcp-config mcp.json --allowedTools mcp__robotstudio" +
-                       " --append-system-prompt \"" + SystemPrompt + "\"" +
+            // As instrucoes vem do CLAUDE.md da pasta de trabalho (ver Workspace).
+            var args = "-p --output-format text --mcp-config mcp.json" +
+                       " --allowedTools mcp__robotstudio \"Read(./imagens/**)\"" +
                        (continueConversation ? " --continue" : "");
 
             // cmd /c resolve tanto claude.exe quanto claude.cmd (instalacao via npm).
             var info = new ProcessStartInfo("cmd.exe", "/c claude " + args)
             {
-                WorkingDirectory = _workDir,
+                WorkingDirectory = Workspace.Dir,
                 UseShellExecute = false,
                 CreateNoWindow = true,
                 RedirectStandardInput = true,
@@ -150,7 +255,9 @@ namespace RsMcp.AddIn
 
         private void SetBusy(bool busy)
         {
+            _busy = busy;
             _send.Enabled = !busy;
+            _attach.Enabled = !busy;
             _newChat.Enabled = !busy;
             _stop.Enabled = busy;
             if (busy) Append("...", "trabalhando");

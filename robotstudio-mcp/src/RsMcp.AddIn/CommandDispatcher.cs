@@ -1,6 +1,8 @@
 using System;
 using System.Collections;
 using System.Collections.Generic;
+using System.Drawing;
+using System.Drawing.Imaging;
 using System.IO;
 using System.Linq;
 using System.Threading;
@@ -33,6 +35,7 @@ namespace RsMcp.AddIn
             switch (method)
             {
                 case "ping": return "RobotStudio OK";
+                case "list_library": return LibraryFinder.Find(Str(p, "filter", ""), Bool(p, "refresh"));
                 case "add_controller": return _ui.RunAsync(() => AddController(p));
                 case "create_controller": return CreateController(p);
                 case "list_rapid_modules": return _rapid.ListModules(ActiveSystemId(), Str(p, "task", "T_ROB1"));
@@ -65,6 +68,9 @@ namespace RsMcp.AddIn
                 case "import_geometry": return Undoable("Import geometry", () => ImportGeometry(p));
                 case "set_position": return Undoable("Set position", () => SetPosition(p));
                 case "attach": return Undoable("Attach", () => Attach(p));
+                case "create_box": return Undoable("Create box", () => CreateBox(p));
+                case "remove_component": return Undoable("Remove", () => RemoveComponent(p));
+                case "capture_view": return CaptureView(p);
                 case "create_workobject": return Undoable("Create workobject", () => CreateWorkobject(p));
                 case "create_target": return Undoable("Create target", () => CreateTarget(p));
                 case "create_path": return Undoable("Create path", () => CreatePath(p));
@@ -172,6 +178,66 @@ namespace RsMcp.AddIn
             if (parent == null) throw new InvalidOperationException("O pai precisa ser um mecanismo (robo, posicionador, trilho).");
             parent.Attach(child, true, Matrix4.Identity);
             return child.Name + " anexado a " + parent.Name;
+        }
+
+        // Bloco para equipamento sem CAD. Origem no centro da face de baixo, para posicionar no chao.
+        private static object CreateBox(Dictionary<string, object> p)
+        {
+            var station = ActiveStation();
+            var name = Str(p, "name");
+            if (station.GraphicComponents.Cast<GraphicComponent>().Any(c => string.Equals(c.Name, name, StringComparison.OrdinalIgnoreCase)))
+                throw new InvalidOperationException("Ja existe um componente chamado " + name + ".");
+            double sx = Num(p, "length") * Mm, sy = Num(p, "width") * Mm, sz = Num(p, "height") * Mm;
+            if (sx <= 0 || sy <= 0 || sz <= 0) throw new ArgumentException("length, width e height devem ser maiores que zero (mm).");
+
+            var part = new Part { Name = name };
+            station.GraphicComponents.Add(part);
+            var corner = Matrix4.Identity;
+            corner.Translation = new Vector3(-sx / 2, -sy / 2, 0);
+            var body = Body.CreateSolidBox(corner, new Vector3(sx, sy, sz));
+            body.Name = name;
+            part.Bodies.Add(body);
+            var color = Str(p, "color", null);
+            // TODO conferir na API do RS 2025: propriedade de cor da Part.
+            if (!string.IsNullOrEmpty(color)) part.Color = ColorTranslator.FromHtml(color);
+            part.Transform.GlobalMatrix = Pose(p);
+            return new { name = part.Name, pose = PoseOut(part.Transform.GlobalMatrix) };
+        }
+
+        private static object RemoveComponent(Dictionary<string, object> p)
+        {
+            var station = ActiveStation();
+            var component = FindComponent(station, Str(p, "name"));
+            station.GraphicComponents.Remove(component);
+            return "Removido: " + component.Name;
+        }
+
+        // Imagem da estacao para o Claude conferir o layout, salva em Documents\RsMcp\imagens.
+        private static object CaptureView(Dictionary<string, object> p)
+        {
+            var station = ActiveStation();
+            var graphics = GraphicControl.ActiveGraphicControl;
+            if (graphics == null) throw new InvalidOperationException("Nenhuma vista 3D aberta.");
+            var width = (int)Num(p, "width", 1600);
+            var height = (int)Num(p, "height", 1000);
+            var view = Str(p, "view", "top").ToLowerInvariant();
+
+            Bitmap image;
+            if (view == "current")
+            {
+                image = graphics.ScreenShot(width, height);
+            }
+            else
+            {
+                // TODO conferir: sentido do lookDirection e efeito do zoom (sobrecarga do SDK 2022.2+).
+                var direction = view == "iso" ? new Vector3(-0.577, -0.577, -0.577) : new Vector3(0, 0, -1);
+                image = graphics.ScreenShot(station, width, height, default(ScreenshotOptions), direction, 1.0f);
+            }
+
+            Directory.CreateDirectory(Workspace.ImagesDir);
+            var file = Path.Combine(Workspace.ImagesDir, "vista_" + view + "_" + DateTime.Now.ToString("yyyyMMdd_HHmmss") + ".png");
+            using (image) image.Save(file, ImageFormat.Png);
+            return new { file, relative = Workspace.RelativeImagePath(file) };
         }
 
         private static GraphicComponent FindComponent(Station station, string name)
@@ -426,10 +492,16 @@ namespace RsMcp.AddIn
             };
         }
 
-        private static double Num(Dictionary<string, object> p, string key)
+        private static double Num(Dictionary<string, object> p, string key, double fallback = 0.0)
         {
             object v;
-            return p.TryGetValue(key, out v) && v != null ? Convert.ToDouble(v) : 0.0;
+            return p.TryGetValue(key, out v) && v != null ? Convert.ToDouble(v) : fallback;
+        }
+
+        private static bool Bool(Dictionary<string, object> p, string key)
+        {
+            object v;
+            return p.TryGetValue(key, out v) && v != null && Convert.ToBoolean(v);
         }
 
         private static string Str(Dictionary<string, object> p, string key)
