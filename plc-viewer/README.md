@@ -11,6 +11,15 @@ python acd_viewer.py MEU_PROJETO.ACD          # gera MEU_PROJETO.html
 python acd_viewer.py MEU_PROJETO.L5X -o x.html
 ```
 
+## PDF com todo o ladder
+
+```bash
+npm install playwright && npx playwright install chromium
+node gerar_pdf.js MEU_PROJETO.html MEU_PROJETO_Ladder.pdf "MEU_PROJETO · Ladder"
+```
+
+Abrir `MEU_PROJETO.html#print` no navegador e imprimir também funciona.
+
 ## O que mostra
 
 - Visão geral: controlador, tarefas, programas, contagens

@@ -7,3 +7,4 @@
 *.html
 !viewer.html
 __pycache__/
+*.pdf

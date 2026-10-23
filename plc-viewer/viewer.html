@@ -108,6 +108,22 @@ pre.st { background: var(--panel); border: 1px solid var(--line); border-radius:
 #xref .ref .mono { color: var(--muted); word-break: break-all; }
 .drop { margin: 15vh auto; max-width: 520px; text-align: center; border: 2px dashed var(--line); border-radius: 12px; padding: 40px; background: var(--panel); }
 
+/* Modo impressão (#print): todas as rotinas ladder em uma página */
+body.print-mode { background: #fff; }
+body.print-mode .app { display: block; height: auto; }
+body.print-mode header, body.print-mode nav, body.print-mode #xref { display: none; }
+body.print-mode main { overflow: visible; padding: 0; }
+body.print-mode .rung-body { overflow: visible; }
+body.print-mode .rung { break-inside: avoid; page-break-inside: avoid; }
+body.print-mode .rung-comment { break-after: avoid; }
+.print-routine { break-before: page; page-break-before: always; }
+.print-routine > h2 { margin-bottom: 2px; }
+.print-cover h1 { font-size: 26px; margin: 0 0 6px; }
+.print-toc { columns: 2; column-gap: 32px; font-size: 11.5px; margin-top: 16px; }
+.print-toc div { break-inside: avoid; }
+.print-toc .p { font-weight: 700; margin-top: 8px; }
+.print-toc .r { padding-left: 14px; }
+
 @media (max-width: 760px) {
   .app { grid-template-columns: 1fr; grid-template-rows: auto 40vh 1fr; }
   nav { border-right: 0; border-bottom: 1px solid var(--line); }
@@ -541,7 +557,44 @@ window.__PLC_DATA__ = null;
     buildNav();
     let key = "overview";
     try { const h = decodeURIComponent(location.hash.slice(1)); if (h) key = h; } catch (e) {}
+    if (key === "print") { renderPrintAll(); return; }
     try { show(key); } catch (e) { show("overview"); }
+  }
+
+  /* Todas as rotinas ladder em sequência, para gerar PDF (abrir com #print). */
+  function renderPrintAll() {
+    document.body.classList.add("print-mode");
+    const order = [];
+    const seen = new Set();
+    D.tasks.forEach((t) => t.programs.forEach((pn) => {
+      const p = D.programs.find((x) => x.name === pn);
+      if (p && !seen.has(pn)) { seen.add(pn); order.push(["Programa", p, p.name, t.name]); }
+    }));
+    D.programs.forEach((p) => { if (!seen.has(p.name)) order.push(["Programa", p, p.name, "não agendado"]); });
+    D.aois.forEach((a) => order.push(["AOI", a, "aoi:" + a.name, "Add-On Instruction"]));
+    const sections = order
+      .map(([label, src, scope, where]) => ({ label, src, scope, where, routines: src.routines.filter((r) => r.type === "RLL" && r.rungs.length) }))
+      .filter((s) => s.routines.length);
+    const c = D.controller;
+    const total = sections.reduce((n, s) => n + s.routines.reduce((k, r) => k + r.rungs.length, 0), 0);
+    let html = `<div class="print-cover"><h1>${esc(c.name)}</h1><div class="sub">Processador ${esc(c.processor)} · firmware ${esc(c.revision)} · Studio 5000 v${esc(c.software)}\n`
+      + `${sections.reduce((n, s) => n + s.routines.length, 0)} rotinas ladder · ${total} rungs</div><div class="print-toc">`
+      + sections.map((s) => `<div class="p">${esc(s.label)} ${esc(s.src.name)} <span class="badge">(${esc(s.where)})</span></div>`
+        + s.routines.map((r) => `<div class="r">${esc(r.name)} · ${r.rungs.length}</div>`).join("")).join("")
+      + `</div></div>`;
+    sections.forEach((s) => {
+      curScope = s.scope;
+      s.routines.forEach((r) => {
+        html += `<section class="print-routine"><h2>${esc(s.src.name)} / ${esc(r.name)}</h2><div class="sub">${esc(s.label)} · ${esc(s.where)} · ${r.rungs.length} rungs${r.desc ? "\n" + esc(r.desc) : ""}</div>${r.rungs.map(renderRung).join("")}</section>`;
+      });
+    });
+    $("#main").innerHTML = html;
+    // Rungs mais largos que a página são reduzidos para caber.
+    document.querySelectorAll("#main .rung-body").forEach((b) => {
+      const ratio = b.clientWidth / b.scrollWidth;
+      if (ratio < 1) b.style.zoom = Math.max(ratio, 0.35).toFixed(3);
+    });
+    document.body.dataset.ready = "1";
   }
 
   if (window.__PLC_DATA__) start(window.__PLC_DATA__);
