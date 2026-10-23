@@ -1,0 +1,9 @@
+# backups de cliente e arquivos gerados não vão para o repositório
+*.ACD
+*.acd
+*.L5X
+*.l5x
+*.json
+*.html
+!viewer.html
+__pycache__/

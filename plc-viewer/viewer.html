@@ -1,0 +1,559 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Visualizador CLP AB</title>
+<style>
+:root {
+  --bg: #f6f7f9; --panel: #ffffff; --text: #1d2330; --muted: #667085; --line: #d6dae1;
+  --accent: #1f6feb; --accent-bg: #e7f0ff; --wire: #2b3445; --coil: #0b7a3e; --box: #fbfcfd;
+  --comment: #2f6b2f; --comment-bg: #eef7ee; --hl: #fff1a8; --warn-bg: #fff6e5; --warn: #8a5a00;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #12151b; --panel: #1a1e26; --text: #e4e7ec; --muted: #98a2b3; --line: #2f3542;
+    --accent: #5b9dff; --accent-bg: #1d2b45; --wire: #c4cad6; --coil: #4cc38a; --box: #20252f;
+    --comment: #8fd18f; --comment-bg: #1b2a1d; --hl: #5a4b00; --warn-bg: #2e2412; --warn: #f0c36b;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #12151b; --panel: #1a1e26; --text: #e4e7ec; --muted: #98a2b3; --line: #2f3542;
+  --accent: #5b9dff; --accent-bg: #1d2b45; --wire: #c4cad6; --coil: #4cc38a; --box: #20252f;
+  --comment: #8fd18f; --comment-bg: #1b2a1d; --hl: #5a4b00; --warn-bg: #2e2412; --warn: #f0c36b;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; height: 100%; }
+body { background: var(--bg); color: var(--text); font: 13px/1.4 system-ui, -apple-system, "Segoe UI", sans-serif; }
+button, input { font: inherit; color: inherit; }
+.app { display: grid; grid-template-columns: 300px 1fr; grid-template-rows: auto 1fr; height: 100vh; }
+header { grid-column: 1 / -1; display: flex; gap: 12px; align-items: center; padding: 8px 16px; background: var(--panel); border-bottom: 1px solid var(--line); flex-wrap: wrap; }
+header h1 { font-size: 15px; margin: 0; font-weight: 600; }
+header .meta { color: var(--muted); }
+header .spacer { flex: 1; }
+#search { width: 320px; max-width: 100%; padding: 6px 10px; border: 1px solid var(--line); border-radius: 6px; background: var(--bg); }
+.icon-btn { border: 1px solid var(--line); background: var(--bg); border-radius: 6px; padding: 5px 9px; cursor: pointer; }
+nav { overflow: auto; background: var(--panel); border-right: 1px solid var(--line); padding: 8px 0; }
+nav details > summary { cursor: pointer; padding: 3px 12px; list-style: none; user-select: none; }
+nav details > summary::before { content: "▸"; display: inline-block; width: 14px; color: var(--muted); }
+nav details[open] > summary::before { content: "▾"; }
+nav .group { padding-left: 14px; }
+nav .item { display: block; width: 100%; text-align: left; border: 0; background: none; padding: 2px 12px 2px 26px; cursor: pointer; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+nav .item:hover { background: var(--accent-bg); }
+nav .item.active { background: var(--accent-bg); color: var(--accent); font-weight: 600; }
+nav .badge { color: var(--muted); font-size: 11px; margin-left: 4px; }
+main { overflow: auto; padding: 16px 20px 60px; }
+h2 { font-size: 17px; margin: 0 0 4px; }
+.sub { color: var(--muted); margin-bottom: 14px; white-space: pre-wrap; }
+.notice { background: var(--warn-bg); color: var(--warn); border-radius: 6px; padding: 10px 12px; margin: 10px 0; }
+table { border-collapse: collapse; width: 100%; background: var(--panel); border: 1px solid var(--line); }
+th, td { text-align: left; padding: 5px 8px; border-bottom: 1px solid var(--line); vertical-align: top; }
+th { background: var(--bg); font-weight: 600; position: sticky; top: -16px; }
+td.mono, .mono { font-family: ui-monospace, Consolas, monospace; font-size: 12px; }
+.link { color: var(--accent); cursor: pointer; text-decoration: none; }
+.link:hover { text-decoration: underline; }
+.toolbar { display: flex; gap: 8px; align-items: center; margin-bottom: 10px; flex-wrap: wrap; }
+.toolbar input[type="search"] { padding: 5px 8px; border: 1px solid var(--line); border-radius: 6px; background: var(--panel); min-width: 240px; }
+.cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 10px; margin: 12px 0 20px; }
+.card { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; }
+.card b { display: block; font-size: 20px; }
+.card span { color: var(--muted); }
+
+/* Ladder */
+.rung { background: var(--panel); border: 1px solid var(--line); border-radius: 6px; margin-bottom: 10px; }
+.rung.flash { outline: 2px solid var(--accent); }
+.rung-comment { background: var(--comment-bg); color: var(--comment); padding: 6px 10px; white-space: pre-wrap; border-bottom: 1px solid var(--line); border-radius: 6px 6px 0 0; }
+.rung-body { display: flex; align-items: stretch; overflow-x: auto; padding: 4px 0; }
+.rung-num { width: 44px; flex: none; display: flex; align-items: center; justify-content: center; color: var(--muted); font-family: ui-monospace, monospace; }
+.rail { width: 3px; flex: none; background: var(--wire); }
+.series { display: flex; align-items: center; flex: 1 0 auto; }
+.wire-bg { background: linear-gradient(var(--wire), var(--wire)) center / 100% 2px no-repeat; }
+.cell { padding: 0 6px; align-self: stretch; display: flex; align-items: center; }
+.cell.br { background: linear-gradient(var(--wire), var(--wire)) left center / 6px 2px no-repeat, linear-gradient(var(--wire), var(--wire)) right center / 6px 2px no-repeat; }
+.cell.fill { flex: 1 0 16px; }
+.branch { display: flex; flex-direction: column; align-self: center; }
+.leg { position: relative; display: flex; align-items: center; padding: 0 10px; }
+.leg::before, .leg::after { content: ""; position: absolute; width: 2px; background: var(--wire); top: 0; bottom: 0; }
+.leg::before { left: 0; } .leg::after { right: 0; }
+.leg:first-child::before, .leg:first-child::after { top: 50%; }
+.leg:last-child::before, .leg:last-child::after { bottom: 50%; }
+.leg:only-child::before, .leg:only-child::after { display: none; }
+.el { display: flex; flex-direction: column; align-items: center; min-width: 70px; max-width: 170px; }
+.el .lbl, .el .dsc { height: 30px; font-size: 11px; text-align: center; overflow: hidden; display: flex; width: 100%; justify-content: center; }
+.el .lbl { align-items: flex-end; font-family: ui-monospace, monospace; word-break: break-all; line-height: 1.15; }
+.el .dsc { align-items: flex-start; color: var(--muted); line-height: 1.15; }
+.el svg { display: block; background: var(--panel); }
+.el svg .w { stroke: var(--wire); }
+.el.coil svg { color: var(--coil); }
+.box { border: 1.5px solid var(--wire); background: var(--box); border-radius: 3px; min-width: 150px; max-width: 280px; margin: 6px 0; }
+.box .bt { font-weight: 700; padding: 2px 8px; border-bottom: 1px solid var(--line); display: flex; justify-content: space-between; gap: 8px; }
+.box .bt .k { color: var(--muted); font-weight: 400; font-size: 11px; }
+.box .row { display: grid; grid-template-columns: auto 1fr; gap: 8px; padding: 1px 8px; font-size: 11.5px; }
+.box .row .pn { color: var(--muted); }
+.box .row .pv { font-family: ui-monospace, monospace; text-align: left; word-break: break-all; }
+.tag { color: var(--accent); cursor: pointer; }
+.tag:hover { text-decoration: underline; }
+.hl { background: var(--hl); border-radius: 2px; }
+.raw { font-family: ui-monospace, monospace; font-size: 11px; color: var(--muted); padding: 4px 10px 6px 54px; word-break: break-all; display: none; }
+.show-raw .raw { display: block; }
+pre.st { background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 12px; overflow: auto; font-size: 12px; }
+
+/* Painel de referência cruzada */
+#xref { position: fixed; right: 0; top: 0; bottom: 0; width: 420px; max-width: 100%; background: var(--panel); border-left: 1px solid var(--line); box-shadow: -4px 0 16px rgba(0,0,0,.12); transform: translateX(105%); transition: transform .15s; display: flex; flex-direction: column; z-index: 10; }
+#xref.open { transform: none; }
+#xref .hd { padding: 12px 14px; border-bottom: 1px solid var(--line); display: flex; gap: 8px; align-items: flex-start; }
+#xref .hd h3 { margin: 0; font-size: 14px; word-break: break-all; flex: 1; }
+#xref .bd { overflow: auto; padding: 8px 14px 30px; }
+#xref .ref { padding: 6px 0; border-bottom: 1px solid var(--line); }
+#xref .ref .mono { color: var(--muted); word-break: break-all; }
+.drop { margin: 15vh auto; max-width: 520px; text-align: center; border: 2px dashed var(--line); border-radius: 12px; padding: 40px; background: var(--panel); }
+
+@media (max-width: 760px) {
+  .app { grid-template-columns: 1fr; grid-template-rows: auto 40vh 1fr; }
+  nav { border-right: 0; border-bottom: 1px solid var(--line); }
+  main { padding: 12px 16px 60px; }
+  #search { width: 100%; }
+}
+</style>
+</head>
+<body>
+<div class="app" id="app">
+  <header>
+    <h1 id="title">Visualizador CLP AB</h1>
+    <span class="meta" id="meta"></span>
+    <span class="spacer"></span>
+    <input id="search" type="search" placeholder="Buscar tag, instrução ou texto…" autocomplete="off">
+    <button class="icon-btn" id="themeBtn" title="Alternar tema claro/escuro">Tema</button>
+  </header>
+  <nav id="nav"></nav>
+  <main id="main"></main>
+</div>
+<aside id="xref"><div class="hd"><h3 id="xrefTitle"></h3><button class="icon-btn" id="xrefClose">✕</button></div><div class="bd" id="xrefBody"></div></aside>
+
+<script>
+window.__PLC_DATA__ = null;
+</script>
+<script>
+(function () {
+  "use strict";
+  const $ = (s) => document.querySelector(s);
+  const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+
+  /* ---------- Tema ---------- */
+  try { const t = localStorage.getItem("plc-theme"); if (t) document.documentElement.dataset.theme = t; } catch (e) {}
+  $("#themeBtn").onclick = () => {
+    const dark = document.documentElement.dataset.theme
+      ? document.documentElement.dataset.theme === "dark"
+      : matchMedia("(prefers-color-scheme: dark)").matches;
+    const next = dark ? "light" : "dark";
+    document.documentElement.dataset.theme = next;
+    try { localStorage.setItem("plc-theme", next); } catch (e) {}
+  };
+
+  /* ---------- Parser de texto neutro (ladder) ---------- */
+  function parseRung(text) {
+    let i = 0;
+    const s = text || "";
+    const ws = () => { while (i < s.length && /\s/.test(s[i])) i++; };
+    function series() {
+      const items = [];
+      for (;;) {
+        ws();
+        const ch = s[i];
+        if (i >= s.length || ch === "]" || ch === "," || ch === ";") return items;
+        if (ch === "[") { items.push(branch()); continue; }
+        const m = /^[A-Za-z_][A-Za-z0-9_]*/.exec(s.slice(i));
+        if (!m) { items.push({ ins: "?", args: [s.slice(i)] }); i = s.length; return items; }
+        i += m[0].length; ws();
+        const args = [];
+        if (s[i] === "(") {
+          i++;
+          let depth = 0, cur = "";
+          while (i < s.length) {
+            const c = s[i];
+            if (c === "(" || c === "[") depth++;
+            else if (c === ")" || c === "]") { if (depth === 0 && c === ")") break; depth--; }
+            if (c === "," && depth === 0) { args.push(cur.trim()); cur = ""; } else cur += c;
+            i++;
+          }
+          i++;
+          if (cur.trim() !== "" || args.length) args.push(cur.trim());
+        }
+        items.push({ ins: m[0], args });
+      }
+    }
+    function branch() {
+      i++;
+      const legs = [series()];
+      while (s[i] === ",") { i++; legs.push(series()); }
+      if (s[i] === "]") i++;
+      return { legs };
+    }
+    const out = series();
+    return out;
+  }
+
+  /* ---------- Dados e índices ---------- */
+  let D, programTags = new Map(), ctrlTags = new Map(), xrefIndex = new Map(), aoiNames = new Set();
+  const routineRef = (kind, owner, routine) => ({ kind, owner, routine });
+
+  const IDENT = /[A-Za-z_][A-Za-z0-9_:]*(?:\.[A-Za-z0-9_]+|\[[^\]]*\])*/g;
+  const NOT_TAGS = new Set(["AND", "OR", "XOR", "NOT", "MOD", "SQR", "SQRT", "ABS", "SIN", "COS", "TAN", "LN", "LOG", "TRN", "FRD", "TOD", "DEG", "RAD"]);
+  function baseTag(op) { return op.split(/[.\[]/)[0]; }
+
+  function indexData() {
+    D.tags.forEach((t) => ctrlTags.set(t.name, t));
+    D.aois.forEach((a) => aoiNames.add(a.name));
+    const add = (tag, ref) => { if (!xrefIndex.has(tag)) xrefIndex.set(tag, []); xrefIndex.get(tag).push(ref); };
+    const walk = (items, fn) => items.forEach((it) => it.legs ? it.legs.forEach((l) => walk(l, fn)) : fn(it));
+    const scan = (kind, owner, r) => {
+      (r.rungs || []).forEach((rg, idx) => {
+        rg._ast = null;
+        const seen = new Set();
+        walk(parseRung(rg.t), (it) => it.args.forEach((a) => {
+          (a.match(IDENT) || []).forEach((op) => {
+            const b = baseTag(op);
+            if (/^\d/.test(b) || NOT_TAGS.has(b.toUpperCase())) return;
+            const key = b + "|" + it.ins;
+            if (seen.has(key)) return;
+            seen.add(key);
+            add(b, { kind, owner, routine: r.name, idx, n: rg.n, ins: it.ins, op });
+          });
+        }));
+      });
+    };
+    D.programs.forEach((p) => {
+      programTags.set(p.name, new Map(p.tags.map((t) => [t.name, t])));
+      p.routines.forEach((r) => scan("program", p.name, r));
+    });
+    D.aois.forEach((a) => {
+      programTags.set("aoi:" + a.name, new Map([...a.params, ...a.tags].map((t) => [t.name, t])));
+      a.routines.forEach((r) => scan("aoi", a.name, r));
+    });
+  }
+
+  function lookupTag(name, scopeKey) {
+    const b = baseTag(name);
+    const local = scopeKey && programTags.get(scopeKey);
+    return (local && local.get(b)) || ctrlTags.get(b) || null;
+  }
+
+  /* ---------- Renderização ladder ---------- */
+  const CONTACTS = { XIC: "", XIO: "/", ONS: "ONS", OSR: "", OSF: "" };
+  const COILS = { OTE: "", OTL: "L", OTU: "U" };
+  const PARAMS = {
+    TON: ["Timer", "Preset", "Accum"], TOF: ["Timer", "Preset", "Accum"], RTO: ["Timer", "Preset", "Accum"],
+    CTU: ["Counter", "Preset", "Accum"], CTD: ["Counter", "Preset", "Accum"], RES: ["Reset"],
+    MOV: ["Source", "Dest"], MVM: ["Source", "Mask", "Dest"], COP: ["Source", "Dest", "Length"], CPS: ["Source", "Dest", "Length"],
+    FLL: ["Source", "Dest", "Length"], CLR: ["Dest"], CPT: ["Dest", "Expression"],
+    ADD: ["Source A", "Source B", "Dest"], SUB: ["Source A", "Source B", "Dest"], MUL: ["Source A", "Source B", "Dest"], DIV: ["Source A", "Source B", "Dest"],
+    MOD: ["Source A", "Source B", "Dest"],
+    EQU: ["Source A", "Source B"], NEQ: ["Source A", "Source B"], GRT: ["Source A", "Source B"], GEQ: ["Source A", "Source B"],
+    LES: ["Source A", "Source B"], LEQ: ["Source A", "Source B"], LIM: ["Low Limit", "Test", "High Limit"], CMP: ["Expression"],
+    MEQ: ["Source", "Mask", "Compare"], JSR: ["Routine Name", "Input Par"], JMP: ["Label"], LBL: ["Label"],
+    OSR: ["Storage Bit", "Output Bit"], OSF: ["Storage Bit", "Output Bit"], ONS: ["Storage Bit"],
+    BTD: ["Source", "Source Bit", "Dest", "Dest Bit", "Length"], MSG: ["Message Control"], GSV: ["Class Name", "Instance Name", "Attribute Name", "Dest"],
+    SSV: ["Class Name", "Instance Name", "Attribute Name", "Source"], FAL: ["Control", "Length", "Position", "Mode", "Dest", "Expression"],
+    FSC: ["Control", "Length", "Position", "Mode", "Expression"], SCL: ["Scale", "In", "Out"], SCP: ["Input", "Input Min", "Input Max", "Scaled Min", "Scaled Max", "Output"],
+    CONCAT: ["Source A", "Source B", "Dest"], MID: ["Source", "Qty", "Start", "Dest"], DTOS: ["Source", "Dest"], STOD: ["Source", "Dest"],
+    SIZE: ["Source", "Dimension", "Size"], AND: ["Source A", "Source B", "Dest"], OR: ["Source A", "Source B", "Dest"], XOR: ["Source A", "Source B", "Dest"], NOT: ["Source", "Dest"],
+    ABS: ["Source", "Dest"], NEG: ["Source", "Dest"], SQR: ["Source", "Dest"], TND: [], NOP: [], AFI: [], MCR: [], UID: [], UIE: [], RET: [],
+    MAM: ["Axis", "Motion Control", "Move Type", "Position", "Speed", "Speed Units"], MSO: ["Axis", "Motion Control"], MSF: ["Axis", "Motion Control"],
+    MAFR: ["Axis", "Motion Control"], MAH: ["Axis", "Motion Control"], MAS: ["Axis", "Motion Control", "Stop Type"],
+    DCS: ["Safety Function", "Input Type", "Discrepancy Time", "Restart Type", "Cold Start Type", "Channel A", "Channel B", "Input Status", "Reset"],
+    ESTOP: ["Safety Function"], CROUT: ["Feedback Type", "Feedback Reaction Time", "Actuate", "Feedback 1", "Feedback 2", "Input Status", "Output Status", "Reset"],
+  };
+
+  let curScope = null;
+  let curQuery = "";
+
+  function hlText(s) {
+    const e = esc(s);
+    if (!curQuery) return e;
+    const q = esc(curQuery).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    return e.replace(new RegExp(q, "gi"), (m) => `<span class="hl">${m}</span>`);
+  }
+  function tagLink(op) {
+    if (!op || op === "?" || /^[-+]?[\d.]/.test(op) || /^".*"$/.test(op)) return hlText(op);
+    return op.replace(IDENT, (m) => {
+      const b = baseTag(m);
+      if (NOT_TAGS.has(b.toUpperCase()) && !lookupTag(m, curScope)) return esc(m);
+      return `<span class="tag" data-tag="${esc(b)}" title="${esc(tagTitle(m))}">${hlText(m)}</span>`;
+    });
+  }
+  function tagTitle(op) {
+    const t = lookupTag(op, curScope);
+    if (!t) return op;
+    return `${op}\n${t.type}${t.alias ? " → " + t.alias : ""}${t.desc ? "\n" + t.desc : ""}`;
+  }
+
+  function svgContact(mark) {
+    return `<svg width="58" height="26" viewBox="0 0 58 26"><line x1="0" y1="13" x2="20" y2="13" class="w" stroke-width="2"/><line x1="38" y1="13" x2="58" y2="13" class="w" stroke-width="2"/><line x1="21" y1="3" x2="21" y2="23" class="w" stroke-width="2.5"/><line x1="37" y1="3" x2="37" y2="23" class="w" stroke-width="2.5"/>${mark === "/" ? '<line x1="23" y1="22" x2="35" y2="4" class="w" stroke-width="2"/>' : ""}</svg>`;
+  }
+  function svgCoil(mark) {
+    return `<svg width="58" height="26" viewBox="0 0 58 26"><line x1="0" y1="13" x2="17" y2="13" class="w" stroke-width="2"/><line x1="41" y1="13" x2="58" y2="13" class="w" stroke-width="2"/><path d="M22 2 Q15 13 22 24" fill="none" stroke="currentColor" stroke-width="2.5"/><path d="M36 2 Q43 13 36 24" fill="none" stroke="currentColor" stroke-width="2.5"/>${mark ? `<text x="29" y="17.5" text-anchor="middle" font-size="12" font-weight="700" fill="currentColor">${mark}</text>` : ""}</svg>`;
+  }
+  function descOf(op) {
+    const t = lookupTag(op, curScope);
+    return t && op === baseTag(op) ? t.desc || "" : "";
+  }
+
+  function renderItem(it) {
+    if (it.legs) {
+      return `<div class="branch">${it.legs.map((l) => `<div class="leg wire-bg">${renderSeries(l)}<div class="cell fill"></div></div>`).join("")}</div>`;
+    }
+    const op = it.args[0] || "";
+    if (it.ins in CONTACTS && it.ins !== "ONS" && it.ins !== "OSR" && it.ins !== "OSF") {
+      return `<div class="el"><div class="lbl">${tagLink(op)}</div>${svgContact(CONTACTS[it.ins])}<div class="dsc">${esc(descOf(op))}</div></div>`;
+    }
+    if (it.ins in COILS) {
+      return `<div class="el coil"><div class="lbl">${tagLink(op)}</div>${svgCoil(COILS[it.ins])}<div class="dsc">${esc(descOf(op))}</div></div>`;
+    }
+    const names = PARAMS[it.ins];
+    const aoi = aoiNames.has(it.ins);
+    let pnames = names;
+    if (aoi) {
+      const a = D.aois.find((x) => x.name === it.ins);
+      const req = a.params.filter((p) => p.name !== "EnableIn" && p.name !== "EnableOut");
+      pnames = [it.ins].concat(req.map((p) => p.name));
+    }
+    const rows = it.args.map((a, k) => `<div class="row"><span class="pn">${esc((pnames && pnames[k]) || "")}</span><span class="pv">${tagLink(a)}</span></div>`).join("");
+    const kind = aoi ? "AOI" : "";
+    const title = aoi ? `<span class="link" data-aoi="${esc(it.ins)}">${hlText(it.ins)}</span>` : hlText(it.ins);
+    return `<div class="box"><div class="bt"><span>${title}</span><span class="k">${kind}</span></div>${rows}</div>`;
+  }
+  function renderSeries(items) {
+    return items.map((it) => `<div class="cell ${it.legs ? "br" : "wire-bg"}">${renderItem(it)}</div>`).join("");
+  }
+  function renderRung(rg, idx) {
+    let body;
+    try {
+      body = rg._ast || (rg._ast = parseRung(rg.t));
+    } catch (e) { body = null; }
+    const ladder = body
+      ? `<div class="series">${renderSeries(body)}<div class="cell fill wire-bg"></div></div>`
+      : `<div class="mono">${esc(rg.t)}</div>`;
+    return `<div class="rung" id="rung-${idx}">${rg.c ? `<div class="rung-comment">${hlText(rg.c)}</div>` : ""}
+      <div class="rung-body"><div class="rung-num">${rg.n}</div><div class="rail"></div>${ladder}<div class="rail"></div></div>
+      <div class="raw">${esc(rg.t)}</div></div>`;
+  }
+
+  /* ---------- Navegação ---------- */
+  let active = null;
+  function setActive(key) {
+    document.querySelectorAll("nav .item.active").forEach((e) => e.classList.remove("active"));
+    const el = document.querySelector(`nav .item[data-key="${CSS.escape(key)}"]`);
+    if (el) {
+      el.classList.add("active");
+      let d = el.parentElement;
+      while (d && d !== document.body) { if (d.tagName === "DETAILS") d.open = true; d = d.parentElement; }
+      el.scrollIntoView({ block: "nearest" });
+    }
+    active = key;
+  }
+
+  function buildNav() {
+    const item = (key, label, badge) => `<button class="item" data-key="${esc(key)}" title="${esc(label)}">${esc(label)}${badge != null ? `<span class="badge">${badge}</span>` : ""}</button>`;
+    const routines = (owner, list, prefix) => list.map((r) => item(`${prefix}|${owner}|${r.name}`, r.name, r.type === "RLL" ? r.rungs.length : r.type)).join("");
+    const byProgram = new Map(D.programs.map((p) => [p.name, p]));
+    const scheduled = new Set();
+    let html = item("overview", "Visão geral");
+    html += `<details open><summary>Tarefas e programas</summary><div class="group">`;
+    D.tasks.forEach((t) => {
+      html += `<details open><summary>${esc(t.name)} <span class="badge">${esc(t.type)}</span></summary><div class="group">`;
+      t.programs.forEach((pn) => {
+        scheduled.add(pn);
+        const p = byProgram.get(pn);
+        if (!p) return;
+        html += `<details><summary>${esc(pn)}</summary>${item("ptags|" + pn, "Tags do programa", p.tags.length)}${routines(pn, p.routines, "r")}</details>`;
+      });
+      html += `</div></details>`;
+    });
+    const unsched = D.programs.filter((p) => !scheduled.has(p.name));
+    if (unsched.length) {
+      html += `<details><summary>Não agendados</summary><div class="group">`;
+      unsched.forEach((p) => { html += `<details><summary>${esc(p.name)}</summary>${item("ptags|" + p.name, "Tags do programa", p.tags.length)}${routines(p.name, p.routines, "r")}</details>`; });
+      html += `</div></details>`;
+    }
+    html += `</div></details>`;
+    html += `<details><summary>Add-On Instructions <span class="badge">${D.aois.length}</span></summary><div class="group">`;
+    D.aois.forEach((a) => { html += `<details><summary>${esc(a.name)}</summary>${item("aoi|" + a.name, "Parâmetros e tags")}${routines(a.name, a.routines, "ar")}</details>`; });
+    html += `</div></details>`;
+    html += item("tags", "Tags do controller", D.tags.length);
+    html += item("datatypes", "Tipos de dados (UDT)", D.datatypes.length);
+    html += item("modules", "Módulos de I/O", D.modules.length);
+    $("#nav").innerHTML = html;
+  }
+
+  function show(key, opts = {}) {
+    setActive(key);
+    const [kind, owner, name] = key.split("|");
+    const m = $("#main");
+    curScope = null;
+    if (kind === "overview") m.innerHTML = viewOverview();
+    else if (kind === "r" || kind === "ar") m.innerHTML = viewRoutine(kind, owner, name);
+    else if (kind === "ptags") { curScope = owner; m.innerHTML = viewTagTable(`Tags do programa ${owner}`, D.programs.find((p) => p.name === owner).tags, owner); }
+    else if (kind === "aoi") m.innerHTML = viewAoi(owner);
+    else if (kind === "tags") m.innerHTML = viewTagTable("Tags do controller", D.tags, null);
+    else if (kind === "datatypes") m.innerHTML = viewDatatypes();
+    else if (kind === "modules") m.innerHTML = viewModules();
+    else if (kind === "search") m.innerHTML = viewSearch(owner);
+    if (opts.rung != null) {
+      const el = document.getElementById("rung-" + opts.rung);
+      if (el) { el.scrollIntoView({ block: "center" }); el.classList.add("flash"); setTimeout(() => el.classList.remove("flash"), 1600); }
+    } else m.scrollTop = 0;
+    try { history.replaceState(null, "", "#" + encodeURIComponent(key)); } catch (e) {}
+  }
+
+  /* ---------- Views ---------- */
+  function viewOverview() {
+    const c = D.controller;
+    const rungs = D.programs.reduce((n, p) => n + p.routines.reduce((k, r) => k + (r.rungs ? r.rungs.length : 0), 0), 0);
+    const rtypes = {};
+    D.programs.forEach((p) => p.routines.forEach((r) => { rtypes[r.type] = (rtypes[r.type] || 0) + 1; }));
+    const card = (v, l) => `<div class="card"><b>${v}</b><span>${l}</span></div>`;
+    const nonLadder = (rtypes.ST || 0) + (rtypes.FBD || 0) + (rtypes.SFC || 0);
+    return `<h2>${esc(c.name)}</h2><div class="sub">Processador ${esc(c.processor)} · firmware ${esc(c.revision)} · Studio 5000 v${esc(c.software)}${c.desc ? "\n" + esc(c.desc) : ""}</div>
+      <div class="cards">${card(D.tasks.length, "tarefas")}${card(D.programs.length, "programas")}${card(Object.values(rtypes).reduce((a, b) => a + b, 0), "rotinas")}${card(rungs, "rungs ladder")}${card(D.tags.length, "tags de controller")}${card(D.aois.length, "AOIs")}${card(D.datatypes.length, "UDTs")}${card(D.modules.length, "módulos")}</div>
+      ${nonLadder ? `<div class="notice">${nonLadder} rotinas ST/FBD/SFC aparecem na árvore, mas o conteúdo delas não é decodificado do .ACD pela biblioteca acd-tools. Para vê-las, exporte um .L5X no Studio 5000 e abra-o neste visualizador.</div>` : ""}
+      <table><thead><tr><th>Tarefa</th><th>Tipo</th><th>Período / prioridade</th><th>Programas</th></tr></thead><tbody>
+      ${D.tasks.map((t) => `<tr><td>${esc(t.name)}</td><td>${esc(t.type)}</td><td>${t.rate ? esc(t.rate) + " ms" : ""}${t.priority ? " · P" + esc(t.priority) : ""}</td><td>${t.programs.map((p) => `<span class="link" data-go="${esc("ptags|" + p)}">${esc(p)}</span>`).join(", ")}</td></tr>`).join("")}
+      </tbody></table>`;
+  }
+
+  function findRoutine(kind, owner, name) {
+    const src = kind === "ar" ? D.aois.find((a) => a.name === owner) : D.programs.find((p) => p.name === owner);
+    return src && src.routines.find((r) => r.name === name);
+  }
+
+  function viewRoutine(kind, owner, name) {
+    const r = findRoutine(kind, owner, name);
+    curScope = kind === "ar" ? "aoi:" + owner : owner;
+    let html = `<h2>${esc(name)}</h2><div class="sub">${kind === "ar" ? "AOI" : "Programa"} ${esc(owner)} · ${esc(r.type)}${r.desc ? "\n" + esc(r.desc) : ""}</div>`;
+    if (r.type === "RLL") {
+      html += `<div class="toolbar"><label><input type="checkbox" id="rawToggle"> mostrar texto neutro</label><span class="sub" style="margin:0">${r.rungs.length} rungs</span></div>`;
+      html += `<div id="rungs">${r.rungs.map(renderRung).join("")}</div>`;
+    } else if (r.lines) {
+      html += `<pre class="st">${r.lines.map((l, k) => `${String(k + 1).padStart(4)}  ${hlText(l)}`).join("\n")}</pre>`;
+    } else {
+      html += `<div class="notice">O conteúdo de rotinas ${esc(r.type)} não é decodificado do .ACD pela biblioteca acd-tools. Exporte um .L5X no Studio 5000 para ver esta rotina.</div>`;
+    }
+    return html;
+  }
+
+  function usageCount(name) { return (xrefIndex.get(name) || []).length; }
+
+  function viewTagTable(title, tags, scope) {
+    const rows = tags.map((t) => `<tr data-f="${esc((t.name + " " + t.type + " " + (t.desc || "") + " " + (t.alias || "")).toLowerCase())}"><td class="mono"><span class="tag" data-tag="${esc(t.name)}">${esc(t.name)}</span></td><td class="mono">${esc(t.type)}${t.dim ? `[${esc(t.dim)}]` : ""}</td><td class="mono">${t.alias ? tagLink(t.alias) : ""}</td><td>${esc(t.desc || "")}</td><td>${usageCount(t.name)}</td></tr>`).join("");
+    return `<h2>${esc(title)}</h2><div class="sub">${tags.length} tags</div>
+      <div class="toolbar"><input type="search" class="filter" placeholder="Filtrar por nome, tipo ou descrição…"></div>
+      <table><thead><tr><th>Nome</th><th>Tipo</th><th>Alias de</th><th>Descrição</th><th>Usos</th></tr></thead><tbody>${rows}</tbody></table>`;
+  }
+
+  function viewAoi(name) {
+    const a = D.aois.find((x) => x.name === name);
+    curScope = "aoi:" + name;
+    const tbl = (list) => `<table><thead><tr><th>Nome</th><th>Uso</th><th>Tipo</th><th>Descrição</th></tr></thead><tbody>${list.map((p) => `<tr><td class="mono">${esc(p.name)}</td><td>${esc(p.usage || "")}</td><td class="mono">${esc(p.type)}${p.dim ? `[${esc(p.dim)}]` : ""}</td><td>${esc(p.desc || "")}</td></tr>`).join("")}</tbody></table>`;
+    return `<h2>${esc(a.name)}</h2><div class="sub">Add-On Instruction · revisão ${esc(a.revision || "")}${a.desc ? "\n" + esc(a.desc) : ""}</div>
+      <div class="toolbar">Rotinas: ${a.routines.map((r) => `<span class="link" data-go="${esc(`ar|${a.name}|${r.name}`)}">${esc(r.name)}</span>`).join(", ")} · <span class="tag" data-tag="${esc(a.name)}">onde é usada</span></div>
+      <h3>Parâmetros</h3>${tbl(a.params)}<h3>Tags locais</h3>${tbl(a.tags)}`;
+  }
+
+  function viewDatatypes() {
+    return `<h2>Tipos de dados (UDT)</h2><div class="toolbar"><input type="search" class="filter" placeholder="Filtrar…"></div>
+      <table><thead><tr><th>Nome</th><th>Membros</th><th>Descrição</th></tr></thead><tbody>
+      ${D.datatypes.map((d) => `<tr data-f="${esc((d.name + " " + d.members.map((m) => m.name).join(" ") + " " + d.desc).toLowerCase())}"><td class="mono" id="dt-${esc(d.name)}"><b>${esc(d.name)}</b></td><td class="mono">${d.members.map((m) => `${esc(m.name)} : ${esc(m.type)}${m.dim ? `[${esc(m.dim)}]` : ""}${m.desc ? ` <span style="color:var(--muted)">— ${esc(m.desc)}</span>` : ""}`).join("<br>")}</td><td>${esc(d.desc)}</td></tr>`).join("")}
+      </tbody></table>`;
+  }
+
+  function viewModules() {
+    return `<h2>Módulos de I/O</h2><div class="sub">Os catálogos CIP-x-y-z são identificadores que o acd-tools não conseguiu mapear para o código comercial.</div>
+      <table><thead><tr><th>Nome</th><th>Catálogo</th><th>Pai</th><th>Endereço</th><th>Descrição</th></tr></thead><tbody>
+      ${D.modules.map((m) => `<tr><td class="mono">${esc(m.name || "—")}${m.inhibited ? " (inibido)" : ""}</td><td class="mono">${esc(m.catalog)}</td><td class="mono">${esc(m.parent)}</td><td class="mono">${esc(m.address)}</td><td>${esc(m.desc)}</td></tr>`).join("")}
+      </tbody></table>`;
+  }
+
+  function viewSearch(q) {
+    curQuery = q;
+    const ql = q.toLowerCase();
+    const tagHits = [];
+    D.tags.forEach((t) => { if ((t.name + " " + (t.desc || "")).toLowerCase().includes(ql)) tagHits.push(["Controller", t]); });
+    D.programs.forEach((p) => p.tags.forEach((t) => { if ((t.name + " " + (t.desc || "")).toLowerCase().includes(ql)) tagHits.push([p.name, t]); }));
+    const rungHits = [];
+    const scanR = (kind, owner, r) => (r.rungs || []).forEach((rg, idx) => {
+      if (rg.t.toLowerCase().includes(ql) || rg.c.toLowerCase().includes(ql)) rungHits.push({ kind, owner, r, rg, idx });
+    });
+    D.programs.forEach((p) => p.routines.forEach((r) => scanR("r", p.name, r)));
+    D.aois.forEach((a) => a.routines.forEach((r) => scanR("ar", a.name, r)));
+    const LIM = 300;
+    return `<h2>Busca: “${esc(q)}”</h2><div class="sub">${tagHits.length} tags · ${rungHits.length} rungs${rungHits.length > LIM ? ` (mostrando ${LIM})` : ""}</div>
+      ${tagHits.length ? `<h3>Tags</h3><table><thead><tr><th>Escopo</th><th>Nome</th><th>Tipo</th><th>Descrição</th><th>Usos</th></tr></thead><tbody>${tagHits.slice(0, LIM).map(([s, t]) => `<tr><td>${esc(s)}</td><td class="mono"><span class="tag" data-tag="${esc(t.name)}">${hlText(t.name)}</span></td><td class="mono">${esc(t.type)}</td><td>${hlText(t.desc || "")}</td><td>${usageCount(t.name)}</td></tr>`).join("")}</tbody></table>` : ""}
+      ${rungHits.length ? `<h3>Rungs</h3>${rungHits.slice(0, LIM).map((h) => `<div class="ref" style="padding:6px 0;border-bottom:1px solid var(--line)"><span class="link" data-go="${esc(`${h.kind}|${h.owner}|${h.r.name}`)}" data-rung="${h.idx}">${esc(h.owner)} / ${esc(h.r.name)} / rung ${h.rg.n}</span><div class="mono" style="color:var(--muted);word-break:break-all">${hlText(h.rg.t.length > 400 ? h.rg.t.slice(0, 400) + "…" : h.rg.t)}</div></div>`).join("")}` : ""}`;
+  }
+
+  function openXref(tag) {
+    const refs = xrefIndex.get(tag) || [];
+    const t = ctrlTags.get(tag) || (curScope && programTags.get(curScope) && programTags.get(curScope).get(tag));
+    $("#xrefTitle").textContent = tag;
+    const head = t ? `<div class="sub">${esc(t.type)}${t.dim ? `[${esc(t.dim)}]` : ""}${t.alias ? " · alias de " + esc(t.alias) : ""}${t.desc ? "\n" + esc(t.desc) : ""}</div>` : "";
+    $("#xrefBody").innerHTML = head + `<div class="sub">${refs.length} referências</div>` + refs.map((r) =>
+      `<div class="ref"><span class="link" data-go="${esc(`${r.kind === "aoi" ? "ar" : "r"}|${r.owner}|${r.routine}`)}" data-rung="${r.idx}">${esc(r.owner)} / ${esc(r.routine)} / rung ${r.n}</span> <b>${esc(r.ins)}</b><div class="mono">${esc(r.op)}</div></div>`).join("");
+    $("#xref").classList.add("open");
+  }
+
+  /* ---------- Eventos ---------- */
+  document.addEventListener("click", (e) => {
+    const t = e.target.closest("[data-tag]");
+    if (t) { openXref(t.dataset.tag); return; }
+    const a = e.target.closest("[data-aoi]");
+    if (a) { show("aoi|" + a.dataset.aoi); return; }
+    const g = e.target.closest("[data-go]");
+    if (g) {
+      if (!g.closest("#xref") && !g.closest("main")) curQuery = "";
+      show(g.dataset.go, { rung: g.dataset.rung != null ? +g.dataset.rung : null });
+      return;
+    }
+    const it = e.target.closest("nav .item");
+    if (it) { curQuery = ""; show(it.dataset.key); }
+  });
+  document.addEventListener("input", (e) => {
+    if (e.target.classList.contains("filter")) {
+      const q = e.target.value.toLowerCase();
+      document.querySelectorAll("main tbody tr").forEach((tr) => { tr.style.display = !q || tr.dataset.f.includes(q) ? "" : "none"; });
+    }
+  });
+  document.addEventListener("change", (e) => {
+    if (e.target.id === "rawToggle") $("#rungs").classList.toggle("show-raw", e.target.checked);
+  });
+  $("#xrefClose").onclick = () => $("#xref").classList.remove("open");
+  document.addEventListener("keydown", (e) => { if (e.key === "Escape") $("#xref").classList.remove("open"); });
+  $("#search").addEventListener("keydown", (e) => {
+    if (e.key === "Enter") { const q = e.target.value.trim(); if (q.length >= 2) show("search|" + q); }
+  });
+
+  /* ---------- Inicialização ---------- */
+  function start(data) {
+    D = data;
+    indexData();
+    document.title = D.controller.name + " · Visualizador CLP";
+    $("#title").textContent = D.controller.name;
+    $("#meta").textContent = `${D.controller.processor} · v${D.controller.revision}`;
+    buildNav();
+    let key = "overview";
+    try { const h = decodeURIComponent(location.hash.slice(1)); if (h) key = h; } catch (e) {}
+    try { show(key); } catch (e) { show("overview"); }
+  }
+
+  if (window.__PLC_DATA__) start(window.__PLC_DATA__);
+  else {
+    $("#nav").innerHTML = "";
+    $("#main").innerHTML = `<div class="drop" id="drop"><h2>Abrir projeto</h2><p class="sub">Arraste aqui o arquivo .json gerado por <span class="mono">acd_viewer.py --json</span>, ou escolha abaixo.</p><input type="file" id="file" accept=".json"></div>`;
+    const load = (f) => f.text().then((s) => start(JSON.parse(s))).catch((err) => alert("Arquivo inválido: " + err.message));
+    $("#file").onchange = (e) => e.target.files[0] && load(e.target.files[0]);
+    document.addEventListener("dragover", (e) => e.preventDefault());
+    document.addEventListener("drop", (e) => { e.preventDefault(); if (e.dataTransfer.files[0]) load(e.dataTransfer.files[0]); });
+  }
+})();
+</script>
+</body>
+</html>
