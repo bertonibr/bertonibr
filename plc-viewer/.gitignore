@@ -6,5 +6,6 @@
 *.json
 *.html
 !viewer.html
+!simulador_robo1.html
 __pycache__/
 *.pdf
