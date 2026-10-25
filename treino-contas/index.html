@@ -282,81 +282,94 @@ sup { font-size: .6em; vertical-align: .9em; line-height: 0; }
   // ---------- 10 níveis de potências e raízes ----------
   const pw = (b, e) => `${b}<sup>${e}</sup>`;                          // b elevado a e
   const falta = b => `${b}<sup class="falta">?</sup>`;
-  const vezes = (b, n) => Array(n).fill(b).join(" × ");
+  const LETRAS = ["x", "y", "a", "b", "m", "k"];
+  const letra = () => LETRAS[rnd(0, LETRAS.length - 1)];
+  const duasLetras = () => { const v = letra(); let w; do { w = letra(); } while (w === v); return [v, w]; };
   const POTENCIAS = [
-    { nome: pw("a", 2) + " ao quadrado", gerar() {
-      const a = rnd(0, 12), r = a * a;
-      return { eq: pw(a, 2), x: r, regra: `O expoente (o número pequeno em cima) diz quantas vezes a base aparece na multiplicação. Ao quadrado = a base vezes ela mesma.`,
-        passos: [[`${pw(a, 2)} é ${a} vezes ${a}.`, `${vezes(a, 2)} = ${r}`]] };
-    } },
-    { nome: pw("a", 3) + " ao cubo", gerar() {
-      const a = rnd(0, 6), r = a * a * a;
-      return { eq: pw(a, 3), x: r, regra: `Ao cubo = a base aparece 3 vezes na multiplicação.`,
+    { nome: pw("x", "m") + " · " + pw("x", "n"), gerar() {
+      const v = letra(), m = rnd(1, 9), n = rnd(1, 9);
+      return { eq: `${pw(v, m)} · ${pw(v, n)} = ${falta(v)}`, x: m + n,
+        regra: `Multiplicação de mesma base: mantenha a letra e <b>some</b> os expoentes. Porque ${pw("x", 2)} · ${pw("x", 3)} = (x·x)·(x·x·x) = ${pw("x", 5)}.`,
         passos: [
-          [`Escreva a base 3 vezes.`, `${pw(a, 3)} = ${vezes(a, 3)}`],
-          [`Multiplique as duas primeiras.`, `${a} × ${a} = ${a * a}`],
-          [`Multiplique pelo último ${a}.`, `${a * a} × ${a} = ${r}`] ] };
+          [`A base é a mesma (${v}). Some os expoentes.`, `${m} + ${n} = ${m + n}`],
+          [`Resultado:`, `${pw(v, m)} · ${pw(v, n)} = ${pw(v, m + n)}`] ] };
     } },
-    { nome: pw("a", "n") + " expoente 0 a 5", gerar() {
-      const b = rnd(2, 5), n = rnd(0, 5), r = b ** n;
-      const passos = n === 0
-        ? [[`Todo número (menos o 0) elevado a 0 dá 1.`, `${pw(b, 0)} = 1`]]
-        : n === 1
-          ? [[`Elevado a 1 é o próprio número.`, `${pw(b, 1)} = ${b}`]]
-          : [[`Escreva a base ${n} vezes.`, `${pw(b, n)} = ${vezes(b, n)}`],
-             [`Vá multiplicando da esquerda para a direita.`, Array.from({ length: n - 1 }, (_, i) => `${b ** (i + 1)} × ${b} = ${b ** (i + 2)}`).join("<br>")]];
-      return { eq: pw(b, n), x: r, regra: `Repita a base o número de vezes do expoente. Atenção: expoente 0 dá sempre 1, e expoente 1 dá a própria base.`, passos };
-    } },
-    { nome: pw(10, "n") + " potência de 10", gerar() {
-      const n = rnd(0, 6), r = 10 ** n;
-      return { eq: pw(10, n), x: r, regra: `Truque das potências de 10: o expoente é a quantidade de zeros depois do 1.`,
-        passos: [[`O expoente é ${n}, então escreva 1 e ${n} zero${n === 1 ? "" : "s"}.`, `${pw(10, n)} = ${r}`]] };
-    } },
-    { nome: "√ raiz quadrada", gerar() {
-      const a = rnd(0, 15), n = a * a;
-      return { eq: `√${n}`, x: a, regra: `A raiz quadrada desfaz o quadrado. Pergunte: qual número vezes ele mesmo dá esse valor?`,
+    { nome: pw("x", "m") + " ÷ " + pw("x", "n"), gerar() {
+      const v = letra(), m = rnd(3, 12), n = rnd(1, m - 1);
+      return { eq: `${pw(v, m)} ÷ ${pw(v, n)} = ${falta(v)}`, x: m - n,
+        regra: `Divisão de mesma base: mantenha a letra e <b>subtraia</b> os expoentes. Porque em ${pw("x", 5)} ÷ ${pw("x", 2)} dois x de cima cancelam com os dois de baixo e sobra ${pw("x", 3)}.`,
         passos: [
-          [`Procure o número que vezes ele mesmo dá ${n}.`, `${a} × ${a} = ${n}`],
-          [`Então a raiz é ${a}.`, `√${n} = ${a}`] ] };
+          [`A base é a mesma (${v}). Subtraia os expoentes.`, `${m} ${M} ${n} = ${m - n}`],
+          [`Resultado:`, `${pw(v, m)} ÷ ${pw(v, n)} = ${pw(v, m - n)}`] ] };
     } },
-    { nome: "∛ raiz cúbica", gerar() {
-      const a = rnd(0, 6), n = a ** 3;
-      return { eq: `∛${n}`, x: a, regra: `A raiz cúbica desfaz o cubo. Pergunte: qual número multiplicado 3 vezes por ele mesmo dá esse valor?`,
-        passos: [
-          [`Procure o número que aparece 3 vezes na multiplicação e dá ${n}.`, `${vezes(a, 3)} = ${n}`],
-          [`Então a raiz cúbica é ${a}.`, `∛${n} = ${a}`] ] };
-    } },
-    { nome: "base negativa", gerar() {
-      const a = rnd(1, 5), n = rnd(2, a <= 3 ? 4 : 3), r = (-a) ** n;
-      return { eq: pw(`(${M}${a})`, n), x: r,
-        regra: `Com base negativa entre parênteses: expoente <b>par</b> dá resultado positivo; expoente <b>ímpar</b> dá resultado negativo. Cuidado: ${pw(`${M}${a}`, 2)} sem parênteses é ${M}(${pw(a, 2)}), que é negativo.`,
-        passos: [
-          [`Faça a conta sem o sinal.`, `${pw(a, n)} = ${a ** n}`],
-          [`O expoente ${n} é ${n % 2 ? "ímpar, então o resultado fica negativo" : "par, então o resultado fica positivo"}.`, `${pw(`(${M}${a})`, n)} = ${num(r)}`] ] };
-    } },
-    { nome: pw("a", "m") + " · " + pw("a", "n"), dica: "Qual é o expoente que falta?", gerar() {
-      const b = rnd(2, 9), m = rnd(1, 9), n = rnd(1, 9);
-      return { eq: `${pw(b, m)} · ${pw(b, n)} = ${falta(b)}`, x: m + n,
-        regra: `Multiplicação de mesma base: mantenha a base e <b>some</b> os expoentes. Exemplo: ${pw(2, 2)} · ${pw(2, 3)} = (2·2)·(2·2·2) = ${pw(2, 5)}.`,
-        passos: [
-          [`A base é a mesma (${b}). Some os expoentes.`, `${m} + ${n} = ${m + n}`],
-          [`Resultado:`, `${pw(b, m)} · ${pw(b, n)} = ${pw(b, m + n)}`] ] };
-    } },
-    { nome: pw("a", "m") + " ÷ " + pw("a", "n"), dica: "Qual é o expoente que falta?", gerar() {
-      const b = rnd(2, 9), m = rnd(3, 12), n = rnd(1, m - 1);
-      return { eq: `${pw(b, m)} ÷ ${pw(b, n)} = ${falta(b)}`, x: m - n,
-        regra: `Divisão de mesma base: mantenha a base e <b>subtraia</b> os expoentes. Exemplo: ${pw(2, 5)} ÷ ${pw(2, 2)} = ${pw(2, 3)}, porque dois 2 se cancelam.`,
-        passos: [
-          [`A base é a mesma (${b}). Subtraia os expoentes.`, `${m} ${M} ${n} = ${m - n}`],
-          [`Resultado:`, `${pw(b, m)} ÷ ${pw(b, n)} = ${pw(b, m - n)}`] ] };
-    } },
-    { nome: "(" + pw("a", "m") + ")" + "<sup>n</sup>", dica: "Qual é o expoente que falta?", gerar() {
-      const b = rnd(2, 9), m = rnd(2, 6), n = rnd(2, 5);
-      return { eq: `(${pw(b, m)})<sup>${n}</sup> = ${falta(b)}`, x: m * n,
-        regra: `Potência de potência: mantenha a base e <b>multiplique</b> os expoentes. Exemplo: (${pw(2, 3)})<sup>2</sup> = ${pw(2, 3)} · ${pw(2, 3)} = ${pw(2, 6)}.`,
+    { nome: "(" + pw("x", "m") + ")<sup>n</sup>", gerar() {
+      const v = letra(), m = rnd(2, 6), n = rnd(2, 5);
+      return { eq: `(${pw(v, m)})<sup>${n}</sup> = ${falta(v)}`, x: m * n,
+        regra: `Potência de potência: mantenha a letra e <b>multiplique</b> os expoentes. Porque (${pw("x", 3)})<sup>2</sup> = ${pw("x", 3)} · ${pw("x", 3)} = ${pw("x", 6)}.`,
         passos: [
           [`Multiplique o expoente de dentro pelo de fora.`, `${m} × ${n} = ${m * n}`],
-          [`Resultado:`, `(${pw(b, m)})<sup>${n}</sup> = ${pw(b, m * n)}`] ] };
+          [`Resultado:`, `(${pw(v, m)})<sup>${n}</sup> = ${pw(v, m * n)}`] ] };
+    } },
+    { nome: "expoente zero", gerar() {
+      const v = letra(), m = rnd(1, 9);
+      const eq = Math.random() < .5 ? `${pw(v, m)} ÷ ${pw(v, m)} = ${falta(v)}` : `${falta(v)} = 1`;
+      return { eq, x: 0,
+        regra: `Qualquer letra (diferente de zero) elevada a <b>0</b> dá <b>1</b>. Porque ${pw("x", 3)} ÷ ${pw("x", 3)} = 1 e, pela regra da divisão, também é ${pw("x", "3−3")} = ${pw("x", 0)}.`,
+        passos: [
+          [`Algo dividido por ele mesmo dá 1.`, `${pw(v, m)} ÷ ${pw(v, m)} = 1`],
+          [`Pela regra da divisão, subtraia os expoentes.`, `${m} ${M} ${m} = 0, então ${pw(v, 0)} = 1`] ] };
+    } },
+    { nome: "três fatores", gerar() {
+      const v = letra(), a = rnd(1, 7), b = rnd(1, 7), c = rnd(1, 7);
+      return { eq: `${pw(v, a)} · ${pw(v, b)} · ${pw(v, c)} = ${falta(v)}`, x: a + b + c,
+        regra: `Com três ou mais fatores de mesma base, some todos os expoentes.`,
+        passos: [
+          [`Some os três expoentes.`, `${a} + ${b} + ${c} = ${a + b + c}`],
+          [`Resultado:`, pw(v, a + b + c)] ] };
+    } },
+    { nome: "(xy)<sup>n</sup>", gerar() {
+      const [v, w] = duasLetras(), a = rnd(1, 5), b = rnd(1, 5), n = rnd(2, 4);
+      return { eq: `(${pw(v, a)}${pw(w, b)})<sup>${n}</sup> = ${falta(v)}${pw(w, b * n)}`, x: a * n,
+        regra: `Potência de um produto: o expoente de fora vale para <b>cada letra</b> de dentro. Multiplique o expoente de cada uma pelo de fora.`,
+        passos: [
+          [`O expoente ${n} vai para cada letra.`, `(${pw(v, a)})<sup>${n}</sup> · (${pw(w, b)})<sup>${n}</sup>`],
+          [`Multiplique os expoentes.`, `${a} × ${n} = ${a * n} &nbsp;e&nbsp; ${b} × ${n} = ${b * n}`],
+          [`Resultado:`, `${pw(v, a * n)}${pw(w, b * n)}`] ] };
+    } },
+    { nome: "expoente negativo", gerar() {
+      const v = letra(), m = rnd(1, 6), n = rnd(m + 1, 10);
+      return { eq: `${pw(v, m)} ÷ ${pw(v, n)} = ${falta(v)}`, x: m - n,
+        regra: `Se o expoente de baixo é maior, o resultado tem expoente <b>negativo</b>. Expoente negativo quer dizer “1 dividido”: ${pw("x", `${M}2`)} = 1 ÷ ${pw("x", 2)}.`,
+        passos: [
+          [`Subtraia os expoentes (de cima menos o de baixo).`, `${m} ${M} ${n} = ${num(m - n)}`],
+          [`Resultado:`, `${pw(v, num(m - n))} = 1 ÷ ${pw(v, n - m)}`] ] };
+    } },
+    { nome: "regras juntas", gerar() {
+      const v = letra(), a = rnd(2, 4), b = rnd(2, 3), c = rnd(1, 9), d = rnd(1, 9);
+      const r = a * b + c - d;
+      return { eq: `(${pw(v, a)})<sup>${b}</sup> · ${pw(v, c)} ÷ ${pw(v, d)} = ${falta(v)}`, x: r,
+        regra: `Resolva uma regra de cada vez: primeiro a potência de potência, depois a multiplicação e por último a divisão.`,
+        passos: [
+          [`Potência de potência: multiplique.`, `(${pw(v, a)})<sup>${b}</sup> = ${pw(v, a * b)}`],
+          [`Multiplicação: some.`, `${pw(v, a * b)} · ${pw(v, c)} = ${pw(v, a * b + c)}`],
+          [`Divisão: subtraia.`, `${pw(v, a * b + c)} ÷ ${pw(v, d)} = ${pw(v, num(r))}`] ] };
+    } },
+    { nome: "√ raiz quadrada", gerar() {
+      const v = letra(), k = rnd(1, 8);
+      return { eq: `√${pw(v, 2 * k)} = ${falta(v)}`, x: k,
+        regra: `A raiz quadrada é o mesmo que expoente ½: <b>divida o expoente por 2</b>. Porque (${pw("x", 3)})<sup>2</sup> = ${pw("x", 6)}, então √${pw("x", 6)} = ${pw("x", 3)}.`,
+        passos: [
+          [`Divida o expoente por 2.`, `${2 * k} ÷ 2 = ${k}`],
+          [`Resultado:`, `√${pw(v, 2 * k)} = ${pw(v, k)}`] ] };
+    } },
+    { nome: "∛ raiz cúbica", gerar() {
+      const v = letra(), k = rnd(1, 6), a = rnd(1, 3 * k - 1), b = 3 * k - a;
+      return { eq: `∛(${pw(v, a)} · ${pw(v, b)}) = ${falta(v)}`, x: k,
+        regra: `A raiz cúbica é o mesmo que expoente ⅓: <b>divida o expoente por 3</b>. Se houver produto dentro, junte primeiro.`,
+        passos: [
+          [`Junte o que está dentro: some os expoentes.`, `${pw(v, a)} · ${pw(v, b)} = ${pw(v, 3 * k)}`],
+          [`Raiz cúbica: divida o expoente por 3.`, `${3 * k} ÷ 3 = ${k}`],
+          [`Resultado:`, `∛${pw(v, 3 * k)} = ${pw(v, k)}`] ] };
     } },
   ];
 
@@ -376,25 +389,25 @@ sup { font-size: .6em; vertical-align: .9em; line-height: 0; }
 
   const APRENDER_POT = `
     <div style="display:flex;flex-direction:column;gap:14px">
-      <p>Potência é uma multiplicação repetida. Em ${pw(2, 3)}, o <b>2</b> é a <b>base</b> e o <b>3</b> é o <b>expoente</b>:</p>
-      <div class="exemplo">${pw(2, 3)} = 2 × 2 × 2 = 8</div>
-      <p>A <b>raiz</b> faz o caminho de volta: √9 = 3 porque ${pw(3, 2)} = 9.</p>
+      <p>Potência é uma multiplicação repetida. Em ${pw("x", 3)}, o <b>x</b> é a <b>base</b> e o <b>3</b> é o <b>expoente</b>:</p>
+      <div class="exemplo">${pw("x", 3)} = x · x · x</div>
+      <p>Aqui a base é sempre uma <b>letra</b>, e você descobre o <b>expoente</b> que falta (o <span class="falta">?</span> amarelo).</p>
       <p><b>Todas as regras</b></p>
       <table class="regras"><tbody>
-        <tr><td>${pw("a", 0)} = 1</td><td>Expoente zero dá 1 <small>(${pw(7, 0)} = 1)</small></td></tr>
-        <tr><td>${pw("a", 1)} = a</td><td>Expoente um dá a própria base <small>(${pw(7, 1)} = 7)</small></td></tr>
-        <tr><td>${pw(10, "n")}</td><td>1 seguido de n zeros <small>(${pw(10, 4)} = 10000)</small></td></tr>
-        <tr><td>${pw("a", "m")} · ${pw("a", "n")} = ${pw("a", "m+n")}</td><td>Multiplicou com mesma base: <b>soma</b> os expoentes</td></tr>
-        <tr><td>${pw("a", "m")} ÷ ${pw("a", "n")} = ${pw("a", "m−n")}</td><td>Dividiu com mesma base: <b>subtrai</b> os expoentes</td></tr>
-        <tr><td>(${pw("a", "m")})<sup>n</sup> = ${pw("a", "m·n")}</td><td>Potência de potência: <b>multiplica</b> os expoentes</td></tr>
-        <tr><td>(a·b)<sup>n</sup> = ${pw("a", "n")}·${pw("b", "n")}</td><td>O expoente vai para cada fator <small>((2·3)<sup>2</sup> = 4·9 = 36)</small></td></tr>
-        <tr><td>(${M}a)<sup>par</sup></td><td>Base negativa com expoente par dá <b>positivo</b> <small>((${M}2)<sup>2</sup> = 4)</small></td></tr>
-        <tr><td>(${M}a)<sup>ímpar</sup></td><td>Com expoente ímpar dá <b>negativo</b> <small>((${M}2)<sup>3</sup> = ${M}8)</small></td></tr>
-        <tr><td>${pw("a", `${M}n`)} = 1 ÷ ${pw("a", "n")}</td><td>Expoente negativo vira fração <small>(${pw(2, `${M}3`)} = 1/8)</small></td></tr>
-        <tr><td>√a</td><td>Qual número ao quadrado dá a? <small>(√49 = 7)</small></td></tr>
-        <tr><td>∛a</td><td>Qual número ao cubo dá a? <small>(∛27 = 3)</small></td></tr>
-        <tr><td>√(a·b) = √a·√b</td><td>Raiz de produto <small>(√(4·9) = 2·3 = 6)</small></td></tr>
-        <tr><td>√a = ${pw("a", "1/2")}</td><td>Raiz é potência com expoente em fração</td></tr>
+        <tr><td>${pw("x", 0)} = 1</td><td>Expoente zero dá 1</td></tr>
+        <tr><td>${pw("x", 1)} = x</td><td>Expoente um dá a própria letra</td></tr>
+        <tr><td>${pw("x", "m")} · ${pw("x", "n")} = ${pw("x", "m+n")}</td><td>Multiplicou com mesma base: <b>soma</b> os expoentes</td></tr>
+        <tr><td>${pw("x", "m")} ÷ ${pw("x", "n")} = ${pw("x", "m−n")}</td><td>Dividiu com mesma base: <b>subtrai</b> os expoentes</td></tr>
+        <tr><td>(${pw("x", "m")})<sup>n</sup> = ${pw("x", "m·n")}</td><td>Potência de potência: <b>multiplica</b> os expoentes</td></tr>
+        <tr><td>(xy)<sup>n</sup> = ${pw("x", "n")}${pw("y", "n")}</td><td>O expoente de fora vai para <b>cada letra</b></td></tr>
+        <tr><td>(x/y)<sup>n</sup> = ${pw("x", "n")}/${pw("y", "n")}</td><td>Na divisão também vai para cima e para baixo</td></tr>
+        <tr><td>${pw("x", `${M}n`)} = 1/${pw("x", "n")}</td><td>Expoente negativo vira <b>1 dividido</b></td></tr>
+        <tr><td>(${M}x)<sup>par</sup> = ${pw("x", "par")}</td><td>Sinal de menos some com expoente <b>par</b></td></tr>
+        <tr><td>(${M}x)<sup>ímpar</sup> = ${M}${pw("x", "ímpar")}</td><td>Sinal de menos fica com expoente <b>ímpar</b></td></tr>
+        <tr><td>√x = ${pw("x", "1/2")}</td><td>Raiz quadrada: <b>divide</b> o expoente por 2</td></tr>
+        <tr><td>∛x = ${pw("x", "1/3")}</td><td>Raiz cúbica: <b>divide</b> o expoente por 3</td></tr>
+        <tr><td>√${pw("x", "m")} = ${pw("x", "m/2")}</td><td>Exemplo de raiz de potência</td></tr>
+        <tr><td>√(xy) = √x · √y</td><td>Raiz de produto vira produto de raízes</td></tr>
       </tbody></table>
       <p>Comece no nível 1. Acertando ${PARA_SUBIR} seguidas você sobe de nível. Durante o jogo, toque em <b>📘 Como faz?</b> para ver a explicação do nível.</p>
     </div>`;
@@ -403,7 +416,7 @@ sup { font-size: .6em; vertical-align: .9em; line-height: 0; }
     alg: { titulo: "Escolha o nível de álgebra", aprender: "📘 Aprender: o que é achar o x?", ajuda: "📘 O que é achar o x?",
            texto: APRENDER_ALG, niveis: NIVEIS, dica: "Quanto vale <b>x</b>?", era: v => `x era ${num(v)}` },
     pot: { titulo: "Escolha o nível de potências e raízes", aprender: "📘 Aprender: regras de potência e raiz", ajuda: "📘 Potências e raízes",
-           texto: APRENDER_POT, niveis: POTENCIAS, dica: "Quanto dá?", era: v => `Era ${num(v)}` },
+           texto: APRENDER_POT, niveis: POTENCIAS, dica: "Qual é o expoente que falta?", era: v => `O expoente era ${num(v)}` },
   };
 
   // ---------- estado ----------
