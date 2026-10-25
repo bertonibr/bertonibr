@@ -1,0 +1,49 @@
+name: App Android
+
+on:
+  push:
+    paths:
+      - 'android-app/**'
+      - '.github/workflows/android.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  apk:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: android-app
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - uses: gradle/actions/setup-gradle@v4
+
+      - name: Testes e build do APK
+        run: |
+          chmod +x gradlew
+          ./gradlew --no-daemon testDebugUnitTest assembleDebug
+          cp app/build/outputs/apk/debug/app-debug.apk Recomendacoes.apk
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Recomendacoes-apk
+          path: android-app/Recomendacoes.apk
+
+      - name: Publicar APK na release "apk-latest"
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release delete apk-latest --yes --cleanup-tag || true
+          gh release create apk-latest Recomendacoes.apk \
+            --prerelease \
+            --target "$GITHUB_SHA" \
+            --title "App Android (última versão)" \
+            --notes "APK gerado automaticamente a partir do commit ${GITHUB_SHA::7} (branch ${GITHUB_REF_NAME})."
