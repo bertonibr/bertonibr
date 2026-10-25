@@ -61,6 +61,9 @@ button {
   font: inherit; font-size: 1.4rem; padding: 14px; cursor: pointer;
 }
 button:focus-visible { outline: 3px solid #fff; outline-offset: 2px; }
+.inicio, .partida { width: 100%; display: flex; flex-direction: column; align-items: center; gap: 20px; }
+.inicio { gap: 14px; margin-top: 8px; }
+.pergunta { margin: 0 0 6px; color: var(--muted); font-size: 1.2rem; text-align: center; }
 .feedback { min-height: 1.5em; font-size: 1.2rem; font-weight: 500; text-align: center; }
 .feedback.ok { color: var(--ok); }
 .feedback.bad { color: var(--bad); }
@@ -70,6 +73,15 @@ button:focus-visible { outline: 3px solid #fff; outline-offset: 2px; }
 <body>
 <main class="card">
   <h1>🧮 Jogo de Matemática</h1>
+
+  <section class="inicio" id="inicio">
+    <p class="pergunta">Que conta você quer treinar?</p>
+    <button type="button" data-modo="+">➕ Mais</button>
+    <button type="button" data-modo="−">➖ Menos</button>
+    <button type="button" data-modo="±">🔀 Misto</button>
+  </section>
+
+  <section class="partida" id="partida" hidden>
   <div class="stats">
     <span>Acertos: <b id="acertos">0</b></span>
     <span>Tentativas: <span class="hearts" id="vidas">❤️❤️❤️</span></span>
@@ -83,17 +95,18 @@ button:focus-visible { outline: 3px solid #fff; outline-offset: 2px; }
   </form>
   <button type="button" id="denovo" hidden>Jogar de novo</button>
   <div class="feedback" id="msg" aria-live="polite"></div>
+  </section>
 </main>
 
 <script>
 (() => {
   const VIDAS = 3;
   const $ = id => document.getElementById(id);
-  let a, b, op, acertos, vidas, travado;
+  let modo, a, b, op, acertos, vidas, travado;
   const rnd = n => Math.floor(Math.random() * (n + 1));
 
   function novaConta() {
-    op = Math.random() < .5 ? "+" : "−";
+    op = modo === "±" ? (Math.random() < .5 ? "+" : "−") : modo;
     a = rnd(99);
     b = op === "+" ? rnd(99) : rnd(a); // na subtração o resultado nunca é negativo
     $("conta").textContent = `${a} ${op} ${b}`;
@@ -107,13 +120,22 @@ button:focus-visible { outline: 3px solid #fff; outline-offset: 2px; }
     $("vidas").textContent = "❤️".repeat(vidas) + "🤍".repeat(VIDAS - vidas);
   }
 
-  function iniciar() {
+  function escolher() {
+    $("partida").hidden = true; $("inicio").hidden = false;
+  }
+
+  function iniciar(m) {
+    modo = m;
     acertos = 0; vidas = VIDAS;
     $("acertos").textContent = 0;
     mostrarVidas();
+    $("inicio").hidden = true; $("partida").hidden = false;
     $("jogo").hidden = false; $("denovo").hidden = true;
     novaConta();
   }
+
+  document.querySelectorAll("[data-modo]").forEach(btn =>
+    btn.addEventListener("click", () => iniciar(btn.dataset.modo)));
 
   $("jogo").addEventListener("submit", e => {
     e.preventDefault();
@@ -142,9 +164,9 @@ button:focus-visible { outline: 3px solid #fff; outline-offset: 2px; }
     }
   });
   $("resposta").addEventListener("input", e => { e.target.value = e.target.value.replace(/\D/g, ""); });
-  $("denovo").addEventListener("click", iniciar);
+  $("denovo").addEventListener("click", escolher);
 
-  iniciar();
+  escolher();
 
   if ("serviceWorker" in navigator && location.protocol === "https:") {
     navigator.serviceWorker.register("sw.js").catch(() => {});
