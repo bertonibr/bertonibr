@@ -4,7 +4,7 @@
 set -euo pipefail
 cd "$(dirname "$0")"
 OUT=build
-rm -rf "$OUT" && mkdir -p "$OUT/assets/fonts" "$OUT/lib"
+rm -rf "$OUT" && mkdir -p "$OUT/assets" "$OUT/lib"
 
 # Ferramentas: smali (gera o classes.dex) e apksig (assina o APK)
 cat > "$OUT/pom.xml" <<'EOF'
@@ -17,18 +17,8 @@ EOF
 mvn -q -f "$OUT/pom.xml" dependency:copy-dependencies -DoutputDirectory=lib
 CP="$OUT/lib/*"
 
-# Assets: o mesmo index.html do app, com as fontes dentro do APK (funciona sem internet)
-cp fonts/*.woff2 "$OUT/assets/fonts/"
-{
-  for f in fonts/*.woff2; do
-    n=$(basename "$f" .woff2)            # ex.: fredoka-latin-600-normal
-    fam=$(echo "$n" | cut -d- -f1); w=$(echo "$n" | cut -d- -f3)
-    echo "@font-face{font-family:\"${fam^}\";font-weight:$w;font-style:normal;font-display:swap;src:url(fonts/$n.woff2) format(\"woff2\")}"
-  done
-} > "$OUT/assets/fonts.css"
-sed -e '/fonts.googleapis.com/d' -e '/fonts.gstatic.com/d' \
-    -e 's#<link rel="manifest" href="manifest.webmanifest">#<link rel="stylesheet" href="fonts.css">#' \
-    ../index.html > "$OUT/assets/index.html"
+# Assets: o mesmo index.html do app (funciona sem internet)
+cp ../index.html "$OUT/assets/index.html"
 
 java -cp "$CP" org.jf.smali.Main assemble -o "$OUT/classes.dex" MainActivity.smali
 python3 build_apk.py "$OUT/classes.dex" "$OUT/assets" ../icon-192.png "$OUT/unsigned.apk"

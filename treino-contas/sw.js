@@ -1,5 +1,5 @@
 // Guarda o app no celular para abrir sem internet.
-const CACHE = "treino-contas-v1";
+const CACHE = "treino-contas-v2";
 const FILES = ["./", "index.html", "manifest.webmanifest", "icon-192.png", "icon-512.png"];
 
 self.addEventListener("install", e => {

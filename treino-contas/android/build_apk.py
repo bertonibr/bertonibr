@@ -10,21 +10,21 @@ import sys
 import zipfile
 
 PACKAGE = "br.bertoni.contas"
-LABEL = "Contas"
-VERSION_CODE = 1
-VERSION_NAME = "1.0"
+LABEL = "Matemática"
+VERSION_CODE = 2
+VERSION_NAME = "1.1"
 MIN_SDK, TARGET_SDK = 24, 34
 
 ANDROID_NS = "http://schemas.android.com/apk/res/android"
 ICON_ID = 0x7F010000                 # mipmap/ic_launcher
-THEME_ID = 16974124                  # @android:style/Theme.DeviceDefault.Light.NoActionBar
+THEME_ID = 16974121                  # @android:style/Theme.DeviceDefault.NoActionBar
 
 # IDs dos atributos android:* (android.R.attr)
 ATTR = {
     "theme": 16842752, "label": 16842753, "icon": 16842754, "name": 16842755,
     "exported": 16842768, "screenOrientation": 16842782, "configChanges": 16842783,
     "minSdkVersion": 16843276, "versionCode": 16843291, "versionName": 16843292,
-    "targetSdkVersion": 16843376,
+    "targetSdkVersion": 16843376, "windowSoftInputMode": 16843307,
 }
 
 T_REF, T_STRING, T_INT, T_HEX, T_BOOL = 0x01, 0x03, 0x10, 0x11, 0x12
@@ -57,6 +57,7 @@ def manifest():
         ("exported", T_BOOL, True),
         ("screenOrientation", T_INT, 1),           # retrato
         ("configChanges", T_HEX, 0x04A0),           # keyboardHidden|orientation|screenSize
+        ("windowSoftInputMode", T_HEX, 0x14),       # teclado aberto, tela se ajusta
     ], [("intent-filter", [], [
         ("action", [("name", T_STRING, "android.intent.action.MAIN")], []),
         ("category", [("name", T_STRING, "android.intent.category.LAUNCHER")], []),
