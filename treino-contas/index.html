@@ -1,5 +1,13 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Treino de Contas</title>
-<meta name="claude:viewport-fit-sides" content="cover">
+<meta name="theme-color" content="#1f3a68">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icon-192.png">
+<link rel="apple-touch-icon" href="icon-192.png">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fredoka:wght@500;600;700&family=Nunito:wght@500;700;800&display=swap">
 <style>
@@ -30,8 +38,10 @@
   --margin-line: #6b3a45; color-scheme: dark;
 }
 * { box-sizing: border-box; }
+:root { padding-top: env(safe-area-inset-top, 0px); padding-bottom: env(safe-area-inset-bottom, 0px); }
 html, body { min-height: 100%; }
 body {
+  margin: 0;
   background-color: var(--paper);
   background-image:
     linear-gradient(var(--grid) 1px, transparent 1px),
@@ -114,6 +124,8 @@ button:focus-visible, input:focus-visible { outline: 3px solid var(--pen-red); o
 .shake { animation: shake .35s; }
 @media (prefers-reduced-motion: reduce) { .shake { animation: none; } .answer { transition: none; } }
 </style>
+</head>
+<body>
 
 <div class="wrap">
   <header>
@@ -265,5 +277,11 @@ button:focus-visible, input:focus-visible { outline: 3px solid var(--pen-red); o
   });
 
   newProblem();
+
+  if ("serviceWorker" in navigator && location.protocol === "https:") {
+    navigator.serviceWorker.register("sw.js").catch(() => {});
+  }
 })();
 </script>
+</body>
+</html>
