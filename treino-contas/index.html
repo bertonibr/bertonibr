@@ -15,15 +15,18 @@
   --text: #ffffff;
   --muted: #b5b5b5;
   --field: #1e1e1e;
+  --line: #444444;
   --blue: #4a86e8;
+  --purple: #8b5cf6;
   --ok: #5fd38a;
   --bad: #ff6b6b;
+  --hint: #ffd166;
   color-scheme: dark;
   padding-top: env(safe-area-inset-top, 0px);
   padding-bottom: env(safe-area-inset-bottom, 0px);
 }
 * { box-sizing: border-box; }
-html { zoom: .8; } /* interface 20% menor */
+.card, .ajuda-caixa { zoom: .8; } /* interface 20% menor */
 html, body { min-height: 100%; }
 body {
   margin: 0;
@@ -41,12 +44,17 @@ body {
   display: flex; flex-direction: column; align-items: center; gap: 20px;
 }
 h1 { margin: 0; font-size: clamp(1.2rem, 6.3vw, 1.75rem); font-weight: 500; text-align: center; white-space: nowrap; }
-.stats { width: 100%; display: flex; justify-content: space-between; align-items: center; gap: 8px; color: var(--muted); font-size: 1.15rem; margin-top: -6px; }
+.tela { width: 100%; display: flex; flex-direction: column; align-items: center; gap: 14px; }
+.pergunta { margin: 4px 0 2px; color: var(--muted); font-size: 1.2rem; text-align: center; }
+.stats { width: 100%; display: flex; justify-content: space-between; align-items: center; gap: 8px; color: var(--muted); font-size: 1.15rem; }
 .stats > span { white-space: nowrap; }
 .stats b { color: var(--text); }
-.hearts { letter-spacing: 1px; }
+.nivel-info { width: 100%; text-align: center; color: var(--muted); font-size: 1rem; margin-top: -6px; }
+.nivel-info b { color: var(--hint); }
 .problem { font-size: 4.2rem; font-weight: 500; margin: 14px 0 6px; font-variant-numeric: tabular-nums; white-space: nowrap; }
-form { width: 100%; display: flex; flex-direction: column; align-items: center; gap: 20px; }
+.problem.eq { font-size: clamp(1.7rem, 8.5vw, 2.6rem); margin: 10px 0 2px; }
+.dica { margin: -6px 0 0; color: var(--muted); font-size: 1.05rem; }
+form { width: 100%; display: flex; flex-direction: column; align-items: center; gap: 18px; }
 #resposta {
   width: 132px; height: 72px;
   background: var(--field); color: var(--text);
@@ -60,13 +68,45 @@ button {
   background: var(--blue); color: #fff;
   font: inherit; font-size: 1.4rem; padding: 14px; cursor: pointer;
 }
+button.roxo { background: var(--purple); }
+button.secundario { background: transparent; border: 2px solid var(--line); color: var(--text); font-size: 1.15rem; padding: 11px; }
+button.voltar { background: none; color: var(--muted); font-size: 1rem; padding: 6px; text-decoration: underline; }
 button:focus-visible { outline: 3px solid #fff; outline-offset: 2px; }
-.inicio, .partida { width: 100%; display: flex; flex-direction: column; align-items: center; gap: 20px; }
-.inicio { gap: 14px; margin-top: 8px; }
-.pergunta { margin: 0 0 6px; color: var(--muted); font-size: 1.2rem; text-align: center; }
+.separador { width: 100%; height: 1px; background: var(--line); margin: 6px 0; }
+.niveis { width: 100%; display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.niveis button { font-size: 1rem; padding: 10px 8px; text-align: left; line-height: 1.25; }
+.niveis button b { display: block; font-size: 1.15rem; }
+.niveis button span { color: #dfe8ff; font-size: .95rem; white-space: nowrap; }
 .feedback { min-height: 1.5em; font-size: 1.2rem; font-weight: 500; text-align: center; }
 .feedback.ok { color: var(--ok); }
 .feedback.bad { color: var(--bad); }
+
+/* Janela "Como faz?" */
+.ajuda {
+  position: fixed; inset: 0; z-index: 10;
+  background: rgba(0, 0, 0, .7);
+  display: flex; align-items: flex-start; justify-content: center;
+  padding: 24px max(16px, env(safe-area-inset-right, 0px)) 24px max(16px, env(safe-area-inset-left, 0px));
+  overflow-y: auto;
+}
+.ajuda-caixa {
+  width: 100%; max-width: 440px; background: var(--card); border-radius: 18px;
+  padding: 22px 20px; display: flex; flex-direction: column; gap: 14px;
+  border: 2px solid var(--purple);
+}
+.ajuda h2 { margin: 0; font-size: 1.45rem; font-weight: 500; }
+.ajuda p { margin: 0; font-size: 1.1rem; line-height: 1.45; color: #e6e6e6; }
+.regra { background: #3a2f5c; border-radius: 10px; padding: 12px 14px; }
+.exemplo { font-size: 1.6rem; text-align: center; padding: 6px 0; white-space: nowrap; }
+.passos { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 10px; counter-reset: passo; }
+.passos li { counter-increment: passo; background: var(--field); border-radius: 10px; padding: 10px 12px 10px 44px; position: relative; font-size: 1.05rem; line-height: 1.4; }
+.passos li::before {
+  content: counter(passo); position: absolute; left: 10px; top: 10px;
+  width: 24px; height: 24px; border-radius: 50%; background: var(--purple);
+  font-size: .9rem; display: grid; place-items: center;
+}
+.passos code { display: block; font-family: inherit; font-size: 1.3rem; color: var(--hint); margin-top: 4px; white-space: nowrap; }
+.conferir-x { color: var(--ok); }
 [hidden] { display: none !important; }
 </style>
 </head>
@@ -74,99 +114,317 @@ button:focus-visible { outline: 3px solid #fff; outline-offset: 2px; }
 <main class="card">
   <h1>🧮 Jogo de Matemática</h1>
 
-  <section class="inicio" id="inicio">
+  <!-- Tela inicial -->
+  <section class="tela" id="inicio">
     <p class="pergunta">Que conta você quer treinar?</p>
     <button type="button" data-modo="+">➕ Mais</button>
     <button type="button" data-modo="−">➖ Menos</button>
     <button type="button" data-modo="±">🔀 Misto</button>
+    <div class="separador"></div>
+    <button type="button" class="roxo" id="ir-algebra">🔤 Álgebra (achar o x)</button>
   </section>
 
-  <section class="partida" id="partida" hidden>
-  <div class="stats">
-    <span>Acertos: <b id="acertos">0</b></span>
-    <span>Tentativas: <span class="hearts" id="vidas">❤️❤️❤️</span></span>
-  </div>
+  <!-- Escolha do nível de álgebra -->
+  <section class="tela" id="escolha-nivel" hidden>
+    <p class="pergunta">Escolha o nível de álgebra</p>
+    <button type="button" class="secundario" id="aprender">📘 Aprender: o que é achar o x?</button>
+    <div class="niveis" id="niveis"></div>
+    <button type="button" class="voltar" id="voltar-inicio">Voltar</button>
+  </section>
 
-  <div class="problem" id="conta">0 + 0</div>
+  <!-- Partida -->
+  <section class="tela" id="partida" hidden>
+    <div class="stats">
+      <span>Acertos: <b id="acertos">0</b></span>
+      <span>Tentativas: <span id="vidas">❤️❤️❤️</span></span>
+    </div>
+    <div class="nivel-info" id="nivel-info" hidden></div>
 
-  <form id="jogo" autocomplete="off">
-    <input id="resposta" type="text" inputmode="numeric" pattern="[0-9]*" maxlength="3" placeholder="?" aria-label="Resposta" autofocus>
-    <button type="submit" id="conferir">Conferir</button>
-  </form>
-  <button type="button" id="denovo" hidden>Jogar de novo</button>
-  <div class="feedback" id="msg" aria-live="polite"></div>
+    <div class="problem" id="conta">0 + 0</div>
+    <p class="dica" id="dica" hidden>Quanto vale <b>x</b>?</p>
+
+    <form id="jogo" autocomplete="off">
+      <input id="resposta" type="text" inputmode="numeric" maxlength="4" placeholder="?" aria-label="Resposta">
+      <button type="submit" id="conferir">Conferir</button>
+      <button type="button" class="secundario" id="como-faz" hidden>📘 Como faz?</button>
+    </form>
+    <button type="button" id="denovo" hidden>Jogar de novo</button>
+    <div class="feedback" id="msg" aria-live="polite"></div>
+    <button type="button" class="voltar" id="sair">Sair</button>
   </section>
 </main>
+
+<div class="ajuda" id="ajuda" hidden role="dialog" aria-modal="true" aria-labelledby="ajuda-titulo">
+  <div class="ajuda-caixa">
+    <h2 id="ajuda-titulo">Como faz</h2>
+    <div id="ajuda-corpo"></div>
+    <button type="button" class="roxo" id="fechar-ajuda">Entendi!</button>
+  </div>
+</div>
 
 <script>
 (() => {
   const VIDAS = 3;
+  const PARA_SUBIR = 5;            // acertos seguidos para subir de nível na álgebra
   const $ = id => document.getElementById(id);
-  let modo, a, b, op, acertos, vidas, travado;
-  const rnd = n => Math.floor(Math.random() * (n + 1));
+  const rnd = (min, max) => min + Math.floor(Math.random() * (max - min + 1));
+  const naoZero = (min, max) => { let n; do { n = rnd(min, max); } while (n === 0); return n; };
 
-  function novaConta() {
-    op = modo === "±" ? (Math.random() < .5 ? "+" : "−") : modo;
-    a = rnd(99);
-    b = op === "+" ? rnd(99) : rnd(a); // na subtração o resultado nunca é negativo
-    $("conta").textContent = `${a} ${op} ${b}`;
-    $("resposta").value = "";
-    $("msg").textContent = ""; $("msg").className = "feedback";
-    travado = false;
-    $("resposta").focus();
+  // ---------- formatação ----------
+  const M = "−";
+  const num = n => (n < 0 ? M + Math.abs(n) : String(n));
+  // termo "ax" no começo da expressão
+  const termoX = a => a === 1 ? "x" : a === -1 ? M + "x" : num(a) + "x";
+  // soma um número ao fim: "+ 5" ou "− 5"
+  const mais = n => n === 0 ? "" : (n < 0 ? ` ${M} ${-n}` : ` + ${n}`);
+  // soma um termo com x ao fim: "+ 3x" ou "− x"
+  const maisX = a => a === 0 ? "" : (a < 0 ? ` ${M} ${termoX(-a)}` : ` + ${termoX(a)}`);
+  const lin = (a, b) => a === 0 ? num(b) : termoX(a) + mais(b);        // ax + b
+  const par = n => (n < 0 ? `(${num(n)})` : String(n));                  // número entre parênteses se negativo
+
+  // ---------- 10 níveis de álgebra ----------
+  // Cada nível gera { eq, x, passos[] }. Os passos explicam a solução daquele exemplo.
+  const NIVEIS = [
+    { nome: "x + a = b", gerar() {
+      const x = rnd(0, 20), a = rnd(1, 20), b = x + a;
+      return { eq: `x + ${a} = ${b}`, x, regra: "O que está somando passa para o outro lado subtraindo.",
+        passos: [
+          [`Tire ${a} dos dois lados para deixar o x sozinho.`, `x = ${b} ${M} ${a}`],
+          [`Faça a conta.`, `x = ${x}`] ] };
+    } },
+    { nome: "x − a = b", gerar() {
+      const a = rnd(1, 20), b = rnd(0, 20), x = a + b;
+      return { eq: `x ${M} ${a} = ${b}`, x, regra: "O que está subtraindo passa para o outro lado somando.",
+        passos: [
+          [`Some ${a} dos dois lados.`, `x = ${b} + ${a}`],
+          [`Faça a conta.`, `x = ${x}`] ] };
+    } },
+    { nome: "a · x = b", gerar() {
+      const a = rnd(2, 9), x = rnd(1, 10), b = a * x;
+      return { eq: `${a}x = ${b}`, x, regra: `${a}x quer dizer ${a} vezes x. O que está multiplicando passa para o outro lado dividindo.`,
+        passos: [
+          [`Divida os dois lados por ${a}.`, `x = ${b} ÷ ${a}`],
+          [`Faça a conta.`, `x = ${x}`] ] };
+    } },
+    { nome: "x ÷ a = b", gerar() {
+      const a = rnd(2, 9), b = rnd(1, 10), x = a * b;
+      return { eq: `x ÷ ${a} = ${b}`, x, regra: "O que está dividindo passa para o outro lado multiplicando.",
+        passos: [
+          [`Multiplique os dois lados por ${a}.`, `x = ${b} × ${a}`],
+          [`Faça a conta.`, `x = ${x}`] ] };
+    } },
+    { nome: "ax + b = c", gerar() {
+      const a = rnd(2, 9), x = rnd(1, 10), b = rnd(1, 20), c = a * x + b;
+      return { eq: `${a}x + ${b} = ${c}`, x, regra: "Primeiro tire o número que está somando. Depois divida pelo número que multiplica o x.",
+        passos: [
+          [`Tire ${b} dos dois lados.`, `${a}x = ${c} ${M} ${b} = ${c - b}`],
+          [`Divida os dois lados por ${a}.`, `x = ${c - b} ÷ ${a} = ${x}`] ] };
+    } },
+    { nome: "ax − b = c", gerar() {
+      const a = rnd(2, 9), x = rnd(1, 10), b = rnd(1, a * x), c = a * x - b;
+      return { eq: `${a}x ${M} ${b} = ${c}`, x, regra: "Primeiro some o número que está subtraindo. Depois divida pelo número que multiplica o x.",
+        passos: [
+          [`Some ${b} dos dois lados.`, `${a}x = ${c} + ${b} = ${c + b}`],
+          [`Divida os dois lados por ${a}.`, `x = ${c + b} ÷ ${a} = ${x}`] ] };
+    } },
+    { nome: "com negativos", gerar() {
+      const a = naoZero(-9, 9) || 2, x = rnd(-10, 10), b = naoZero(-20, 20), c = a * x + b;
+      const k = c - b;
+      return { eq: `${lin(a, b)} = ${num(c)}`, x,
+        regra: "Igual ao nível 5, mas a resposta pode ser negativa. Sinais: menos com menos dá mais; menos com mais dá menos.",
+        passos: [
+          [b > 0 ? `Tire ${b} dos dois lados.` : `Some ${-b} dos dois lados.`, `${termoX(a)} = ${num(c)}${mais(-b)} = ${num(k)}`],
+          [`Divida os dois lados por ${par(a)}.`, `x = ${num(k)} ÷ ${par(a)} = ${num(x)}`] ] };
+    } },
+    { nome: "a(x + b) = c", gerar() {
+      const a = rnd(2, 6), b = naoZero(-9, 9), x = rnd(-10, 10), c = a * (x + b);
+      return { eq: `${a}(x${mais(b)}) = ${num(c)}`, x,
+        regra: "Multiplique o número de fora por cada coisa dentro do parênteses (distributiva). Depois resolva como no nível 7.",
+        passos: [
+          [`Distributiva: ${a} vezes x e ${a} vezes ${par(b)}.`, `${a}x${mais(a * b)} = ${num(c)}`],
+          [a * b > 0 ? `Tire ${a * b} dos dois lados.` : `Some ${-a * b} dos dois lados.`, `${a}x = ${num(c - a * b)}`],
+          [`Divida os dois lados por ${a}.`, `x = ${num(c - a * b)} ÷ ${a} = ${num(x)}`] ] };
+    } },
+    { nome: "x dos dois lados", gerar() {
+      let a, c; do { a = rnd(2, 9); c = rnd(1, 8); } while (a <= c);
+      const x = rnd(-10, 10), b = naoZero(-15, 15), d = (a - c) * x + b;
+      const k = d - b;
+      return { eq: `${lin(a, b)} = ${termoX(c)}${mais(d)}`, x,
+        regra: "Junte os termos com x de um lado e os números do outro. Quem muda de lado troca o sinal.",
+        passos: [
+          [`Tire ${termoX(c)} dos dois lados.`, `${lin(a - c, b)} = ${num(d)}`],
+          [b > 0 ? `Tire ${b} dos dois lados.` : `Some ${-b} dos dois lados.`, `${termoX(a - c)} = ${num(k)}`],
+          [a - c === 1 ? `Pronto, o x já está sozinho.` : `Divida os dois lados por ${a - c}.`, a - c === 1 ? `x = ${num(x)}` : `x = ${num(k)} ÷ ${a - c} = ${num(x)}`] ] };
+    } },
+    { nome: "desafio final", gerar() {
+      let a, d; do { a = rnd(2, 5); d = naoZero(-6, 6); } while (a === d);
+      const b = naoZero(-6, 6), c = naoZero(-10, 10), x = rnd(-10, 10);
+      const e = a * (x + b) + c - d * x;
+      const p = a - d, q = a * b + c, k = e - q;
+      return { eq: `${a}(x${mais(b)})${mais(c)} = ${termoX(d)}${mais(e)}`, x,
+        regra: "Use tudo: distributiva, junte os números, passe o x para um lado e os números para o outro, e divida.",
+        passos: [
+          [`Distributiva no parênteses.`, `${a}x${mais(a * b)}${mais(c)} = ${termoX(d)}${mais(e)}`],
+          [`Junte os números do lado esquerdo.`, `${lin(a, q)} = ${termoX(d)}${mais(e)}`],
+          [d > 0 ? `Tire ${termoX(d)} dos dois lados.` : `Some ${termoX(-d)} dos dois lados.`, `${lin(p, q)} = ${num(e)}`],
+          [q > 0 ? `Tire ${q} dos dois lados.` : q < 0 ? `Some ${-q} dos dois lados.` : `Não há número para tirar.`, `${termoX(p)} = ${num(k)}`],
+          [p === 1 ? `Pronto, o x já está sozinho.` : `Divida os dois lados por ${par(p)}.`, p === 1 ? `x = ${num(x)}` : `x = ${num(k)} ÷ ${par(p)} = ${num(x)}`] ] };
+    } },
+  ];
+
+  // ---------- estado ----------
+  let modo, nivel, atual, acertos, seguidos, vidas, travado;
+
+  function mostrar(tela) {
+    ["inicio", "escolha-nivel", "partida"].forEach(id => { $(id).hidden = id !== tela; });
   }
 
   function mostrarVidas() {
     $("vidas").textContent = "❤️".repeat(vidas) + "🤍".repeat(VIDAS - vidas);
   }
 
-  function escolher() {
-    $("partida").hidden = true; $("inicio").hidden = false;
+  function infoNivel() {
+    $("nivel-info").innerHTML = nivel < NIVEIS.length
+      ? `Nível <b>${nivel}</b> de 10 · faltam ${PARA_SUBIR - seguidos} acertos para subir`
+      : `Nível <b>10</b> de 10 · o último!`;
   }
 
-  function iniciar(m) {
-    modo = m;
-    acertos = 0; vidas = VIDAS;
+  function novaConta() {
+    if (modo === "alg") {
+      atual = NIVEIS[nivel - 1].gerar();
+      $("conta").textContent = atual.eq;
+      infoNivel();
+    } else {
+      const op = modo === "±" ? (Math.random() < .5 ? "+" : "−") : modo;
+      const a = rnd(0, 99), b = op === "+" ? rnd(0, 99) : rnd(0, a); // menos: resultado nunca negativo
+      atual = { x: op === "+" ? a + b : a - b };
+      $("conta").textContent = `${a} ${op} ${b}`;
+    }
+    $("resposta").value = "";
+    $("msg").textContent = ""; $("msg").className = "feedback";
+    travado = false;
+    $("resposta").focus();
+  }
+
+  function iniciar(m, n) {
+    modo = m; nivel = n || 1;
+    acertos = 0; seguidos = 0; vidas = VIDAS;
+    const alg = modo === "alg";
+    $("conta").className = alg ? "problem eq" : "problem";
+    $("nivel-info").hidden = !alg; $("dica").hidden = !alg; $("como-faz").hidden = !alg;
     $("acertos").textContent = 0;
     mostrarVidas();
-    $("inicio").hidden = true; $("partida").hidden = false;
     $("jogo").hidden = false; $("denovo").hidden = true;
+    mostrar("partida");
     novaConta();
   }
 
-  document.querySelectorAll("[data-modo]").forEach(btn =>
-    btn.addEventListener("click", () => iniciar(btn.dataset.modo)));
-
   $("jogo").addEventListener("submit", e => {
     e.preventDefault();
-    const txt = $("resposta").value.trim();
-    if (travado || txt === "") { $("resposta").focus(); return; }
+    const txt = $("resposta").value.trim().replace("−", "-");
+    if (travado || !/^-?\d+$/.test(txt)) { $("resposta").focus(); return; }
     travado = true;
-    const certo = op === "+" ? a + b : a - b;
-    const msg = $("msg");
+    const certo = atual.x, msg = $("msg");
     if (parseInt(txt, 10) === certo) {
-      acertos++;
+      acertos++; seguidos++;
       $("acertos").textContent = acertos;
       msg.className = "feedback ok"; msg.textContent = "✅ Certo!";
-      setTimeout(novaConta, 800);
+      if (modo === "alg" && seguidos >= PARA_SUBIR && nivel < NIVEIS.length) {
+        nivel++; seguidos = 0;
+        vidas = VIDAS; mostrarVidas();
+        msg.textContent = `🎉 Muito bem! Subiu para o nível ${nivel}!`;
+        setTimeout(novaConta, 1800);
+      } else {
+        setTimeout(novaConta, 800);
+      }
     } else {
-      vidas--;
+      vidas--; seguidos = 0;
       mostrarVidas();
+      if (modo === "alg") infoNivel();
       msg.className = "feedback bad";
+      const era = modo === "alg" ? `x era ${num(certo)}` : `Era ${certo}`;
       if (vidas === 0) {
-        msg.textContent = `❌ Era ${certo}. Fim de jogo! Você acertou ${acertos}.`;
+        msg.textContent = `❌ ${era}. Fim de jogo! Você acertou ${acertos}.`;
         $("jogo").hidden = true; $("denovo").hidden = false;
         $("resposta").blur();
       } else {
-        msg.textContent = `❌ Errado! Era ${certo}.`;
-        setTimeout(novaConta, 1500);
+        msg.textContent = `❌ Errado! ${era}.`;
+        setTimeout(novaConta, 1800);
       }
     }
   });
-  $("resposta").addEventListener("input", e => { e.target.value = e.target.value.replace(/\D/g, ""); });
-  $("denovo").addEventListener("click", escolher);
 
-  escolher();
+  // aceita só números e o sinal de menos no começo
+  $("resposta").addEventListener("input", e => {
+    let v = e.target.value.replace(/[−–]/g, "-").replace(/[^\d-]/g, "");
+    v = v.replace(/(?!^)-/g, "");
+    if (modo !== "alg") v = v.replace(/-/g, "");
+    e.target.value = v;
+  });
+
+  // ---------- telas ----------
+  document.querySelectorAll("[data-modo]").forEach(btn =>
+    btn.addEventListener("click", () => iniciar(btn.dataset.modo)));
+  $("ir-algebra").addEventListener("click", () => mostrar("escolha-nivel"));
+  $("voltar-inicio").addEventListener("click", () => mostrar("inicio"));
+  $("sair").addEventListener("click", () => mostrar(modo === "alg" ? "escolha-nivel" : "inicio"));
+  $("denovo").addEventListener("click", () => mostrar(modo === "alg" ? "escolha-nivel" : "inicio"));
+
+  NIVEIS.forEach((nv, i) => {
+    const b = document.createElement("button");
+    b.type = "button";
+    b.innerHTML = `<b>Nível ${i + 1}</b><span>${nv.nome}</span>`;
+    b.addEventListener("click", () => iniciar("alg", i + 1));
+    $("niveis").appendChild(b);
+  });
+
+  // ---------- "Como faz?" ----------
+  function abrirAjuda(titulo, html) {
+    $("ajuda-titulo").textContent = titulo;
+    $("ajuda-corpo").innerHTML = html;
+    $("ajuda").hidden = false;
+    $("ajuda").scrollTop = 0;
+    $("fechar-ajuda").focus();
+  }
+  function fecharAjuda() {
+    $("ajuda").hidden = true;
+    if (!$("partida").hidden && !$("jogo").hidden) $("resposta").focus();
+  }
+
+  // Explica com um exemplo do mesmo nível, diferente da conta que está na tela.
+  $("como-faz").addEventListener("click", () => {
+    let ex; do { ex = NIVEIS[nivel - 1].gerar(); } while (ex.eq === atual.eq);
+    const passos = ex.passos.map(([t, c]) => `<li>${t}<code>${c}</code></li>`).join("");
+    abrirAjuda(`📘 Como faz · Nível ${nivel}`, `
+      <div style="display:flex;flex-direction:column;gap:14px">
+        <p class="regra">${ex.regra}</p>
+        <p>Veja um exemplo:</p>
+        <div class="exemplo">${ex.eq}</div>
+        <ol class="passos">${passos}</ol>
+        <p class="conferir-x">✔ Para conferir, troque o x por ${num(ex.x)} na conta: os dois lados dão o mesmo número.</p>
+        <p>Agora tente a sua: <b>${atual.eq}</b></p>
+      </div>`);
+  });
+
+  $("aprender").addEventListener("click", () => abrirAjuda("📘 O que é achar o x?", `
+    <div style="display:flex;flex-direction:column;gap:14px">
+      <p>O <b>x</b> é um número escondido. Seu trabalho é descobrir qual é.</p>
+      <div class="exemplo">x + 3 = 7</div>
+      <p>Pense numa <b>balança</b>: o sinal de <b>=</b> diz que os dois lados pesam igual. Se você fizer a mesma coisa nos dois lados, a balança continua certa.</p>
+      <ol class="passos">
+        <li>Quero o x sozinho. Ele está com <b>+ 3</b>, então tiro 3 dos dois lados.<code>x + 3 − 3 = 7 − 3</code></li>
+        <li>Faço a conta.<code>x = 4</code></li>
+        <li>Confiro: troco o x por 4.<code>4 + 3 = 7 ✔</code></li>
+      </ol>
+      <p class="regra">Regra de ouro: o que está <b>somando</b> passa subtraindo, o que está <b>subtraindo</b> passa somando, o que está <b>multiplicando</b> passa dividindo e o que está <b>dividindo</b> passa multiplicando.</p>
+      <p>Comece no nível 1. Acertando ${PARA_SUBIR} seguidas você sobe de nível. Durante o jogo, toque em <b>📘 Como faz?</b> para ver a explicação do nível.</p>
+    </div>`));
+
+  $("fechar-ajuda").addEventListener("click", fecharAjuda);
+  $("ajuda").addEventListener("click", e => { if (e.target === $("ajuda")) fecharAjuda(); });
+  document.addEventListener("keydown", e => { if (e.key === "Escape" && !$("ajuda").hidden) fecharAjuda(); });
+
+  mostrar("inicio");
 
   if ("serviceWorker" in navigator && location.protocol === "https:") {
     navigator.serviceWorker.register("sw.js").catch(() => {});
