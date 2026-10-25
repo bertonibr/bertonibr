@@ -11,8 +11,8 @@ import zipfile
 
 PACKAGE = "br.bertoni.contas"
 LABEL = "Matemática"
-VERSION_CODE = 2
-VERSION_NAME = "1.1"
+VERSION_CODE = 3
+VERSION_NAME = "1.2"
 MIN_SDK, TARGET_SDK = 24, 34
 
 ANDROID_NS = "http://schemas.android.com/apk/res/android"
