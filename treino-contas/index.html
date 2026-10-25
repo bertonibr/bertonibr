@@ -56,7 +56,7 @@ h1 { margin: 0; font-size: clamp(1.2rem, 6.3vw, 1.75rem); font-weight: 500; text
 .dica { margin: -6px 0 0; color: var(--muted); font-size: 1.05rem; }
 form { width: 100%; display: flex; flex-direction: column; align-items: center; gap: 18px; }
 #resposta {
-  width: 132px; height: 72px;
+  width: 160px; height: 72px;
   background: var(--field); color: var(--text);
   border: 2px solid var(--text); border-radius: 12px;
   font: inherit; font-size: 2.2rem; text-align: center;
@@ -107,6 +107,12 @@ button:focus-visible { outline: 3px solid #fff; outline-offset: 2px; }
 }
 .passos code { display: block; font-family: inherit; font-size: 1.3rem; color: var(--hint); margin-top: 4px; white-space: nowrap; }
 .conferir-x { color: var(--ok); }
+sup { font-size: .6em; vertical-align: .9em; line-height: 0; }
+.falta { color: var(--hint); }
+.regras { width: 100%; border-collapse: collapse; font-size: 1.05rem; }
+.regras td { padding: 9px 6px; border-bottom: 1px solid var(--line); vertical-align: top; line-height: 1.35; }
+.regras td:first-child { color: var(--hint); font-size: 1.2rem; white-space: nowrap; padding-right: 12px; }
+.regras small { color: var(--muted); font-size: .92rem; }
 [hidden] { display: none !important; }
 </style>
 </head>
@@ -121,13 +127,14 @@ button:focus-visible { outline: 3px solid #fff; outline-offset: 2px; }
     <button type="button" data-modo="−">➖ Menos</button>
     <button type="button" data-modo="±">🔀 Misto</button>
     <div class="separador"></div>
-    <button type="button" class="roxo" id="ir-algebra">🔤 Álgebra (achar o x)</button>
+    <button type="button" class="roxo" data-trilha="alg">🔤 Álgebra (achar o x)</button>
+    <button type="button" class="roxo" data-trilha="pot">🔢 Potências e raízes</button>
   </section>
 
-  <!-- Escolha do nível de álgebra -->
+  <!-- Escolha do nível (álgebra ou potências) -->
   <section class="tela" id="escolha-nivel" hidden>
-    <p class="pergunta">Escolha o nível de álgebra</p>
-    <button type="button" class="secundario" id="aprender">📘 Aprender: o que é achar o x?</button>
+    <p class="pergunta" id="titulo-niveis">Escolha o nível</p>
+    <button type="button" class="secundario" id="aprender">📘 Aprender</button>
     <div class="niveis" id="niveis"></div>
     <button type="button" class="voltar" id="voltar-inicio">Voltar</button>
   </section>
@@ -144,7 +151,7 @@ button:focus-visible { outline: 3px solid #fff; outline-offset: 2px; }
     <p class="dica" id="dica" hidden>Quanto vale <b>x</b>?</p>
 
     <form id="jogo" autocomplete="off">
-      <input id="resposta" type="text" inputmode="numeric" maxlength="4" placeholder="?" aria-label="Resposta">
+      <input id="resposta" type="text" inputmode="numeric" maxlength="8" placeholder="?" aria-label="Resposta">
       <button type="submit" id="conferir">Conferir</button>
       <button type="button" class="secundario" id="como-faz" hidden>📘 Como faz?</button>
     </form>
@@ -272,8 +279,136 @@ button:focus-visible { outline: 3px solid #fff; outline-offset: 2px; }
     } },
   ];
 
+  // ---------- 10 níveis de potências e raízes ----------
+  const pw = (b, e) => `${b}<sup>${e}</sup>`;                          // b elevado a e
+  const falta = b => `${b}<sup class="falta">?</sup>`;
+  const vezes = (b, n) => Array(n).fill(b).join(" × ");
+  const POTENCIAS = [
+    { nome: pw("a", 2) + " ao quadrado", gerar() {
+      const a = rnd(0, 12), r = a * a;
+      return { eq: pw(a, 2), x: r, regra: `O expoente (o número pequeno em cima) diz quantas vezes a base aparece na multiplicação. Ao quadrado = a base vezes ela mesma.`,
+        passos: [[`${pw(a, 2)} é ${a} vezes ${a}.`, `${vezes(a, 2)} = ${r}`]] };
+    } },
+    { nome: pw("a", 3) + " ao cubo", gerar() {
+      const a = rnd(0, 6), r = a * a * a;
+      return { eq: pw(a, 3), x: r, regra: `Ao cubo = a base aparece 3 vezes na multiplicação.`,
+        passos: [
+          [`Escreva a base 3 vezes.`, `${pw(a, 3)} = ${vezes(a, 3)}`],
+          [`Multiplique as duas primeiras.`, `${a} × ${a} = ${a * a}`],
+          [`Multiplique pelo último ${a}.`, `${a * a} × ${a} = ${r}`] ] };
+    } },
+    { nome: pw("a", "n") + " expoente 0 a 5", gerar() {
+      const b = rnd(2, 5), n = rnd(0, 5), r = b ** n;
+      const passos = n === 0
+        ? [[`Todo número (menos o 0) elevado a 0 dá 1.`, `${pw(b, 0)} = 1`]]
+        : n === 1
+          ? [[`Elevado a 1 é o próprio número.`, `${pw(b, 1)} = ${b}`]]
+          : [[`Escreva a base ${n} vezes.`, `${pw(b, n)} = ${vezes(b, n)}`],
+             [`Vá multiplicando da esquerda para a direita.`, Array.from({ length: n - 1 }, (_, i) => `${b ** (i + 1)} × ${b} = ${b ** (i + 2)}`).join("<br>")]];
+      return { eq: pw(b, n), x: r, regra: `Repita a base o número de vezes do expoente. Atenção: expoente 0 dá sempre 1, e expoente 1 dá a própria base.`, passos };
+    } },
+    { nome: pw(10, "n") + " potência de 10", gerar() {
+      const n = rnd(0, 6), r = 10 ** n;
+      return { eq: pw(10, n), x: r, regra: `Truque das potências de 10: o expoente é a quantidade de zeros depois do 1.`,
+        passos: [[`O expoente é ${n}, então escreva 1 e ${n} zero${n === 1 ? "" : "s"}.`, `${pw(10, n)} = ${r}`]] };
+    } },
+    { nome: "√ raiz quadrada", gerar() {
+      const a = rnd(0, 15), n = a * a;
+      return { eq: `√${n}`, x: a, regra: `A raiz quadrada desfaz o quadrado. Pergunte: qual número vezes ele mesmo dá esse valor?`,
+        passos: [
+          [`Procure o número que vezes ele mesmo dá ${n}.`, `${a} × ${a} = ${n}`],
+          [`Então a raiz é ${a}.`, `√${n} = ${a}`] ] };
+    } },
+    { nome: "∛ raiz cúbica", gerar() {
+      const a = rnd(0, 6), n = a ** 3;
+      return { eq: `∛${n}`, x: a, regra: `A raiz cúbica desfaz o cubo. Pergunte: qual número multiplicado 3 vezes por ele mesmo dá esse valor?`,
+        passos: [
+          [`Procure o número que aparece 3 vezes na multiplicação e dá ${n}.`, `${vezes(a, 3)} = ${n}`],
+          [`Então a raiz cúbica é ${a}.`, `∛${n} = ${a}`] ] };
+    } },
+    { nome: "base negativa", gerar() {
+      const a = rnd(1, 5), n = rnd(2, a <= 3 ? 4 : 3), r = (-a) ** n;
+      return { eq: pw(`(${M}${a})`, n), x: r,
+        regra: `Com base negativa entre parênteses: expoente <b>par</b> dá resultado positivo; expoente <b>ímpar</b> dá resultado negativo. Cuidado: ${pw(`${M}${a}`, 2)} sem parênteses é ${M}(${pw(a, 2)}), que é negativo.`,
+        passos: [
+          [`Faça a conta sem o sinal.`, `${pw(a, n)} = ${a ** n}`],
+          [`O expoente ${n} é ${n % 2 ? "ímpar, então o resultado fica negativo" : "par, então o resultado fica positivo"}.`, `${pw(`(${M}${a})`, n)} = ${num(r)}`] ] };
+    } },
+    { nome: pw("a", "m") + " · " + pw("a", "n"), dica: "Qual é o expoente que falta?", gerar() {
+      const b = rnd(2, 9), m = rnd(1, 9), n = rnd(1, 9);
+      return { eq: `${pw(b, m)} · ${pw(b, n)} = ${falta(b)}`, x: m + n,
+        regra: `Multiplicação de mesma base: mantenha a base e <b>some</b> os expoentes. Exemplo: ${pw(2, 2)} · ${pw(2, 3)} = (2·2)·(2·2·2) = ${pw(2, 5)}.`,
+        passos: [
+          [`A base é a mesma (${b}). Some os expoentes.`, `${m} + ${n} = ${m + n}`],
+          [`Resultado:`, `${pw(b, m)} · ${pw(b, n)} = ${pw(b, m + n)}`] ] };
+    } },
+    { nome: pw("a", "m") + " ÷ " + pw("a", "n"), dica: "Qual é o expoente que falta?", gerar() {
+      const b = rnd(2, 9), m = rnd(3, 12), n = rnd(1, m - 1);
+      return { eq: `${pw(b, m)} ÷ ${pw(b, n)} = ${falta(b)}`, x: m - n,
+        regra: `Divisão de mesma base: mantenha a base e <b>subtraia</b> os expoentes. Exemplo: ${pw(2, 5)} ÷ ${pw(2, 2)} = ${pw(2, 3)}, porque dois 2 se cancelam.`,
+        passos: [
+          [`A base é a mesma (${b}). Subtraia os expoentes.`, `${m} ${M} ${n} = ${m - n}`],
+          [`Resultado:`, `${pw(b, m)} ÷ ${pw(b, n)} = ${pw(b, m - n)}`] ] };
+    } },
+    { nome: "(" + pw("a", "m") + ")" + "<sup>n</sup>", dica: "Qual é o expoente que falta?", gerar() {
+      const b = rnd(2, 9), m = rnd(2, 6), n = rnd(2, 5);
+      return { eq: `(${pw(b, m)})<sup>${n}</sup> = ${falta(b)}`, x: m * n,
+        regra: `Potência de potência: mantenha a base e <b>multiplique</b> os expoentes. Exemplo: (${pw(2, 3)})<sup>2</sup> = ${pw(2, 3)} · ${pw(2, 3)} = ${pw(2, 6)}.`,
+        passos: [
+          [`Multiplique o expoente de dentro pelo de fora.`, `${m} × ${n} = ${m * n}`],
+          [`Resultado:`, `(${pw(b, m)})<sup>${n}</sup> = ${pw(b, m * n)}`] ] };
+    } },
+  ];
+
+  const APRENDER_ALG = `
+    <div style="display:flex;flex-direction:column;gap:14px">
+      <p>O <b>x</b> é um número escondido. Seu trabalho é descobrir qual é.</p>
+      <div class="exemplo">x + 3 = 7</div>
+      <p>Pense numa <b>balança</b>: o sinal de <b>=</b> diz que os dois lados pesam igual. Se você fizer a mesma coisa nos dois lados, a balança continua certa.</p>
+      <ol class="passos">
+        <li>Quero o x sozinho. Ele está com <b>+ 3</b>, então tiro 3 dos dois lados.<code>x + 3 − 3 = 7 − 3</code></li>
+        <li>Faço a conta.<code>x = 4</code></li>
+        <li>Confiro: troco o x por 4.<code>4 + 3 = 7 ✔</code></li>
+      </ol>
+      <p class="regra">Regra de ouro: o que está <b>somando</b> passa subtraindo, o que está <b>subtraindo</b> passa somando, o que está <b>multiplicando</b> passa dividindo e o que está <b>dividindo</b> passa multiplicando.</p>
+      <p>Comece no nível 1. Acertando ${PARA_SUBIR} seguidas você sobe de nível. Durante o jogo, toque em <b>📘 Como faz?</b> para ver a explicação do nível.</p>
+    </div>`;
+
+  const APRENDER_POT = `
+    <div style="display:flex;flex-direction:column;gap:14px">
+      <p>Potência é uma multiplicação repetida. Em ${pw(2, 3)}, o <b>2</b> é a <b>base</b> e o <b>3</b> é o <b>expoente</b>:</p>
+      <div class="exemplo">${pw(2, 3)} = 2 × 2 × 2 = 8</div>
+      <p>A <b>raiz</b> faz o caminho de volta: √9 = 3 porque ${pw(3, 2)} = 9.</p>
+      <p><b>Todas as regras</b></p>
+      <table class="regras"><tbody>
+        <tr><td>${pw("a", 0)} = 1</td><td>Expoente zero dá 1 <small>(${pw(7, 0)} = 1)</small></td></tr>
+        <tr><td>${pw("a", 1)} = a</td><td>Expoente um dá a própria base <small>(${pw(7, 1)} = 7)</small></td></tr>
+        <tr><td>${pw(10, "n")}</td><td>1 seguido de n zeros <small>(${pw(10, 4)} = 10000)</small></td></tr>
+        <tr><td>${pw("a", "m")} · ${pw("a", "n")} = ${pw("a", "m+n")}</td><td>Multiplicou com mesma base: <b>soma</b> os expoentes</td></tr>
+        <tr><td>${pw("a", "m")} ÷ ${pw("a", "n")} = ${pw("a", "m−n")}</td><td>Dividiu com mesma base: <b>subtrai</b> os expoentes</td></tr>
+        <tr><td>(${pw("a", "m")})<sup>n</sup> = ${pw("a", "m·n")}</td><td>Potência de potência: <b>multiplica</b> os expoentes</td></tr>
+        <tr><td>(a·b)<sup>n</sup> = ${pw("a", "n")}·${pw("b", "n")}</td><td>O expoente vai para cada fator <small>((2·3)<sup>2</sup> = 4·9 = 36)</small></td></tr>
+        <tr><td>(${M}a)<sup>par</sup></td><td>Base negativa com expoente par dá <b>positivo</b> <small>((${M}2)<sup>2</sup> = 4)</small></td></tr>
+        <tr><td>(${M}a)<sup>ímpar</sup></td><td>Com expoente ímpar dá <b>negativo</b> <small>((${M}2)<sup>3</sup> = ${M}8)</small></td></tr>
+        <tr><td>${pw("a", `${M}n`)} = 1 ÷ ${pw("a", "n")}</td><td>Expoente negativo vira fração <small>(${pw(2, `${M}3`)} = 1/8)</small></td></tr>
+        <tr><td>√a</td><td>Qual número ao quadrado dá a? <small>(√49 = 7)</small></td></tr>
+        <tr><td>∛a</td><td>Qual número ao cubo dá a? <small>(∛27 = 3)</small></td></tr>
+        <tr><td>√(a·b) = √a·√b</td><td>Raiz de produto <small>(√(4·9) = 2·3 = 6)</small></td></tr>
+        <tr><td>√a = ${pw("a", "1/2")}</td><td>Raiz é potência com expoente em fração</td></tr>
+      </tbody></table>
+      <p>Comece no nível 1. Acertando ${PARA_SUBIR} seguidas você sobe de nível. Durante o jogo, toque em <b>📘 Como faz?</b> para ver a explicação do nível.</p>
+    </div>`;
+
+  const TRILHAS = {
+    alg: { titulo: "Escolha o nível de álgebra", aprender: "📘 Aprender: o que é achar o x?", ajuda: "📘 O que é achar o x?",
+           texto: APRENDER_ALG, niveis: NIVEIS, dica: "Quanto vale <b>x</b>?", era: v => `x era ${num(v)}` },
+    pot: { titulo: "Escolha o nível de potências e raízes", aprender: "📘 Aprender: regras de potência e raiz", ajuda: "📘 Potências e raízes",
+           texto: APRENDER_POT, niveis: POTENCIAS, dica: "Quanto dá?", era: v => `Era ${num(v)}` },
+  };
+
   // ---------- estado ----------
   let modo, nivel, atual, acertos, seguidos, vidas, travado;
+  const trilha = () => TRILHAS[modo];
 
   function mostrar(tela) {
     ["inicio", "escolha-nivel", "partida"].forEach(id => { $(id).hidden = id !== tela; });
@@ -284,15 +419,17 @@ button:focus-visible { outline: 3px solid #fff; outline-offset: 2px; }
   }
 
   function infoNivel() {
-    $("nivel-info").innerHTML = nivel < NIVEIS.length
+    $("nivel-info").innerHTML = nivel < trilha().niveis.length
       ? `Nível <b>${nivel}</b> de 10 · faltam ${PARA_SUBIR - seguidos} acertos para subir`
       : `Nível <b>10</b> de 10 · o último!`;
   }
 
   function novaConta() {
-    if (modo === "alg") {
-      atual = NIVEIS[nivel - 1].gerar();
-      $("conta").textContent = atual.eq;
+    if (trilha()) {
+      const nv = trilha().niveis[nivel - 1];
+      atual = nv.gerar();
+      $("conta").innerHTML = atual.eq;
+      $("dica").innerHTML = nv.dica || trilha().dica;
       infoNivel();
     } else {
       const op = modo === "±" ? (Math.random() < .5 ? "+" : "−") : modo;
@@ -309,9 +446,9 @@ button:focus-visible { outline: 3px solid #fff; outline-offset: 2px; }
   function iniciar(m, n) {
     modo = m; nivel = n || 1;
     acertos = 0; seguidos = 0; vidas = VIDAS;
-    const alg = modo === "alg";
-    $("conta").className = alg ? "problem eq" : "problem";
-    $("nivel-info").hidden = !alg; $("dica").hidden = !alg; $("como-faz").hidden = !alg;
+    const comNivel = !!trilha();
+    $("conta").className = comNivel ? "problem eq" : "problem";
+    $("nivel-info").hidden = !comNivel; $("dica").hidden = !comNivel; $("como-faz").hidden = !comNivel;
     $("acertos").textContent = 0;
     mostrarVidas();
     $("jogo").hidden = false; $("denovo").hidden = true;
@@ -329,7 +466,7 @@ button:focus-visible { outline: 3px solid #fff; outline-offset: 2px; }
       acertos++; seguidos++;
       $("acertos").textContent = acertos;
       msg.className = "feedback ok"; msg.textContent = "✅ Certo!";
-      if (modo === "alg" && seguidos >= PARA_SUBIR && nivel < NIVEIS.length) {
+      if (trilha() && seguidos >= PARA_SUBIR && nivel < trilha().niveis.length) {
         nivel++; seguidos = 0;
         vidas = VIDAS; mostrarVidas();
         msg.textContent = `🎉 Muito bem! Subiu para o nível ${nivel}!`;
@@ -340,9 +477,9 @@ button:focus-visible { outline: 3px solid #fff; outline-offset: 2px; }
     } else {
       vidas--; seguidos = 0;
       mostrarVidas();
-      if (modo === "alg") infoNivel();
+      if (trilha()) infoNivel();
       msg.className = "feedback bad";
-      const era = modo === "alg" ? `x era ${num(certo)}` : `Era ${certo}`;
+      const era = trilha() ? trilha().era(certo) : `Era ${certo}`;
       if (vidas === 0) {
         msg.textContent = `❌ ${era}. Fim de jogo! Você acertou ${acertos}.`;
         $("jogo").hidden = true; $("denovo").hidden = false;
@@ -358,25 +495,36 @@ button:focus-visible { outline: 3px solid #fff; outline-offset: 2px; }
   $("resposta").addEventListener("input", e => {
     let v = e.target.value.replace(/[−–]/g, "-").replace(/[^\d-]/g, "");
     v = v.replace(/(?!^)-/g, "");
-    if (modo !== "alg") v = v.replace(/-/g, "");
+    if (!trilha()) v = v.replace(/-/g, "");
     e.target.value = v;
   });
 
   // ---------- telas ----------
+  let trilhaEscolhida = "alg";
+  function abrirNiveis(t) {
+    trilhaEscolhida = t;
+    const tr = TRILHAS[t];
+    $("titulo-niveis").textContent = tr.titulo;
+    $("aprender").textContent = tr.aprender;
+    $("niveis").innerHTML = "";
+    tr.niveis.forEach((nv, i) => {
+      const b = document.createElement("button");
+      b.type = "button";
+      b.innerHTML = `<b>Nível ${i + 1}</b><span>${nv.nome}</span>`;
+      b.addEventListener("click", () => iniciar(t, i + 1));
+      $("niveis").appendChild(b);
+    });
+    mostrar("escolha-nivel");
+  }
+
   document.querySelectorAll("[data-modo]").forEach(btn =>
     btn.addEventListener("click", () => iniciar(btn.dataset.modo)));
-  $("ir-algebra").addEventListener("click", () => mostrar("escolha-nivel"));
+  document.querySelectorAll("[data-trilha]").forEach(btn =>
+    btn.addEventListener("click", () => abrirNiveis(btn.dataset.trilha)));
   $("voltar-inicio").addEventListener("click", () => mostrar("inicio"));
-  $("sair").addEventListener("click", () => mostrar(modo === "alg" ? "escolha-nivel" : "inicio"));
-  $("denovo").addEventListener("click", () => mostrar(modo === "alg" ? "escolha-nivel" : "inicio"));
-
-  NIVEIS.forEach((nv, i) => {
-    const b = document.createElement("button");
-    b.type = "button";
-    b.innerHTML = `<b>Nível ${i + 1}</b><span>${nv.nome}</span>`;
-    b.addEventListener("click", () => iniciar("alg", i + 1));
-    $("niveis").appendChild(b);
-  });
+  const voltar = () => (trilha() ? abrirNiveis(modo) : mostrar("inicio"));
+  $("sair").addEventListener("click", voltar);
+  $("denovo").addEventListener("click", voltar);
 
   // ---------- "Como faz?" ----------
   function abrirAjuda(titulo, html) {
@@ -393,32 +541,28 @@ button:focus-visible { outline: 3px solid #fff; outline-offset: 2px; }
 
   // Explica com um exemplo do mesmo nível, diferente da conta que está na tela.
   $("como-faz").addEventListener("click", () => {
-    let ex; do { ex = NIVEIS[nivel - 1].gerar(); } while (ex.eq === atual.eq);
+    const nv = trilha().niveis[nivel - 1];
+    let ex, tentativas = 0;
+    do { ex = nv.gerar(); } while (ex.eq === atual.eq && ++tentativas < 50);
     const passos = ex.passos.map(([t, c]) => `<li>${t}<code>${c}</code></li>`).join("");
+    const conferir = modo === "alg"
+      ? `<p class="conferir-x">✔ Para conferir, troque o x por ${num(ex.x)} na conta: os dois lados dão o mesmo número.</p>`
+      : `<p class="conferir-x">✔ Resposta do exemplo: ${num(ex.x)}</p>`;
     abrirAjuda(`📘 Como faz · Nível ${nivel}`, `
       <div style="display:flex;flex-direction:column;gap:14px">
         <p class="regra">${ex.regra}</p>
         <p>Veja um exemplo:</p>
         <div class="exemplo">${ex.eq}</div>
         <ol class="passos">${passos}</ol>
-        <p class="conferir-x">✔ Para conferir, troque o x por ${num(ex.x)} na conta: os dois lados dão o mesmo número.</p>
+        ${conferir}
         <p>Agora tente a sua: <b>${atual.eq}</b></p>
       </div>`);
   });
 
-  $("aprender").addEventListener("click", () => abrirAjuda("📘 O que é achar o x?", `
-    <div style="display:flex;flex-direction:column;gap:14px">
-      <p>O <b>x</b> é um número escondido. Seu trabalho é descobrir qual é.</p>
-      <div class="exemplo">x + 3 = 7</div>
-      <p>Pense numa <b>balança</b>: o sinal de <b>=</b> diz que os dois lados pesam igual. Se você fizer a mesma coisa nos dois lados, a balança continua certa.</p>
-      <ol class="passos">
-        <li>Quero o x sozinho. Ele está com <b>+ 3</b>, então tiro 3 dos dois lados.<code>x + 3 − 3 = 7 − 3</code></li>
-        <li>Faço a conta.<code>x = 4</code></li>
-        <li>Confiro: troco o x por 4.<code>4 + 3 = 7 ✔</code></li>
-      </ol>
-      <p class="regra">Regra de ouro: o que está <b>somando</b> passa subtraindo, o que está <b>subtraindo</b> passa somando, o que está <b>multiplicando</b> passa dividindo e o que está <b>dividindo</b> passa multiplicando.</p>
-      <p>Comece no nível 1. Acertando ${PARA_SUBIR} seguidas você sobe de nível. Durante o jogo, toque em <b>📘 Como faz?</b> para ver a explicação do nível.</p>
-    </div>`));
+  $("aprender").addEventListener("click", () => {
+    const tr = TRILHAS[trilhaEscolhida];
+    abrirAjuda(tr.ajuda, tr.texto);
+  });
 
   $("fechar-ajuda").addEventListener("click", fecharAjuda);
   $("ajuda").addEventListener("click", e => { if (e.target === $("ajuda")) fecharAjuda(); });

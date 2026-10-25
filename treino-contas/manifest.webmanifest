@@ -1,7 +1,7 @@
 {
   "name": "Jogo de Matemática",
   "short_name": "Matemática",
-  "description": "Contas de mais e menos de 0 a 99 e álgebra (achar o x) em 10 níveis.",
+  "description": "Contas de mais e menos de 0 a 99 e álgebra e potências e raízes, cada uma em 10 níveis.",
   "lang": "pt-BR",
   "start_url": "./",
   "scope": "./",
