@@ -1,0 +1,269 @@
+<title>Treino de Contas</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fredoka:wght@500;600;700&family=Nunito:wght@500;700;800&display=swap">
+<style>
+/* Layout: uma folha de caderno quadriculado centralizada; conta grande em cima, teclado numérico embaixo, placar na margem. */
+:root {
+  --paper: #f7f9fc;
+  --grid: #dbe4f0;
+  --ink: #1f3a68;
+  --ink-soft: #5d7398;
+  --pen-red: #d6453d;
+  --pen-green: #2f8f5b;
+  --key: #ffffff;
+  --key-edge: #c9d5e6;
+  --margin-line: #f0a8a3;
+  --f-display: "Fredoka", "Trebuchet MS", system-ui, sans-serif;
+  --f-body: "Nunito", system-ui, -apple-system, "Segoe UI", sans-serif;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --paper: #142033; --grid: #1f2f48; --ink: #e6eefb; --ink-soft: #93a7c7;
+    --pen-red: #ff7a70; --pen-green: #5fd394; --key: #1c2b44; --key-edge: #2d4163;
+    --margin-line: #6b3a45; color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --paper: #142033; --grid: #1f2f48; --ink: #e6eefb; --ink-soft: #93a7c7;
+  --pen-red: #ff7a70; --pen-green: #5fd394; --key: #1c2b44; --key-edge: #2d4163;
+  --margin-line: #6b3a45; color-scheme: dark;
+}
+* { box-sizing: border-box; }
+html, body { min-height: 100%; }
+body {
+  background-color: var(--paper);
+  background-image:
+    linear-gradient(var(--grid) 1px, transparent 1px),
+    linear-gradient(90deg, var(--grid) 1px, transparent 1px);
+  background-size: 24px 24px;
+  color: var(--ink);
+  font-family: var(--f-body);
+  font-size: 16px;
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+  padding-block: 20px 32px;
+}
+.wrap { max-width: 480px; margin: 0 auto; display: flex; flex-direction: column; gap: 16px; }
+
+header { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+h1 { font-family: var(--f-display); font-weight: 700; font-size: 1.6rem; margin: 0; text-wrap: balance; }
+.sub { color: var(--ink-soft); font-size: .85rem; margin: 0; }
+
+.modes { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+.modes button, .opt {
+  font: 700 .95rem var(--f-body); color: var(--ink);
+  background: var(--key); border: 2px solid var(--key-edge); border-radius: 12px;
+  padding: 10px 6px; cursor: pointer;
+}
+.modes button[aria-pressed="true"] { border-color: var(--ink); background: var(--ink); color: var(--paper); }
+.opt-row { display: flex; align-items: center; gap: 8px; color: var(--ink-soft); font-size: .9rem; }
+.opt-row input { width: 18px; height: 18px; accent-color: var(--ink); }
+
+.score { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+.stat { text-align: center; }
+.stat b { display: block; font: 600 1.6rem var(--f-display); font-variant-numeric: tabular-nums; }
+.stat span { font-size: .72rem; text-transform: uppercase; letter-spacing: .08em; color: var(--ink-soft); font-weight: 800; }
+
+.sheet {
+  position: relative; padding: 22px 20px 18px 40px;
+  border-left: 2px solid var(--margin-line);
+}
+.problem {
+  font-family: var(--f-display); font-weight: 600;
+  font-size: clamp(3rem, 15vw, 4.6rem); line-height: 1;
+  display: grid; grid-template-columns: auto auto; justify-content: end; column-gap: 14px; row-gap: 4px;
+  font-variant-numeric: tabular-nums;
+}
+.problem .n { text-align: right; grid-column: 2; }
+.problem .op { grid-column: 1; grid-row: 2; color: var(--ink-soft); }
+.problem .bar { grid-column: 1 / -1; height: 4px; background: var(--ink); border-radius: 2px; margin: 6px 0; }
+.answer {
+  grid-column: 1 / -1; text-align: right; min-height: 1em;
+  color: var(--ink); transition: color .15s;
+}
+.answer.empty { color: var(--grid); }
+.answer.ok { color: var(--pen-green); }
+.answer.bad { color: var(--pen-red); text-decoration: line-through; text-decoration-thickness: 4px; }
+.feedback { min-height: 1.6em; text-align: right; font-weight: 800; font-size: 1.05rem; margin-top: 8px; }
+.feedback.ok { color: var(--pen-green); }
+.feedback.bad { color: var(--pen-red); }
+
+.pad { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
+.pad button {
+  font: 600 1.7rem var(--f-display); color: var(--ink);
+  background: var(--key); border: 2px solid var(--key-edge); border-bottom-width: 5px;
+  border-radius: 14px; padding: 12px 0; cursor: pointer; touch-action: manipulation;
+}
+.pad button:active { transform: translateY(2px); border-bottom-width: 3px; }
+.pad .go { background: var(--ink); color: var(--paper); border-color: var(--ink); font-size: 1.3rem; }
+.pad .del { font-size: 1.3rem; color: var(--ink-soft); }
+button:focus-visible, input:focus-visible { outline: 3px solid var(--pen-red); outline-offset: 2px; }
+
+.mistakes h2 { font: 700 1rem var(--f-display); margin: 0 0 6px; }
+.mistakes ul { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: 6px; }
+.mistakes li {
+  font: 600 .95rem var(--f-display); font-variant-numeric: tabular-nums;
+  padding: 4px 10px; border: 2px dashed var(--pen-red); border-radius: 10px; background: var(--paper);
+}
+.mistakes li s { color: var(--pen-red); margin-left: 4px; }
+.mistakes .none { color: var(--ink-soft); font-size: .9rem; }
+.reset { align-self: center; background: none; border: none; color: var(--ink-soft); font: 700 .9rem var(--f-body); text-decoration: underline; cursor: pointer; padding: 6px; }
+
+@keyframes shake { 20%,60% { transform: translateX(-6px); } 40%,80% { transform: translateX(6px); } }
+.shake { animation: shake .35s; }
+@media (prefers-reduced-motion: reduce) { .shake { animation: none; } .answer { transition: none; } }
+</style>
+
+<div class="wrap">
+  <header>
+    <h1>Treino de Contas</h1>
+    <p class="sub">Números de 0 a 99</p>
+  </header>
+
+  <div class="modes" role="group" aria-label="Tipo de conta">
+    <button id="m-add" data-mode="add" aria-pressed="true">+ Mais</button>
+    <button id="m-sub" data-mode="sub" aria-pressed="false">− Menos</button>
+    <button id="m-mix" data-mode="mix" aria-pressed="false">± Misto</button>
+  </div>
+  <label class="opt-row" for="limit"><input type="checkbox" id="limit"> Resultado também até 99</label>
+
+  <div class="score">
+    <div class="stat"><b id="s-ok">0</b><span>Acertos</span></div>
+    <div class="stat"><b id="s-bad">0</b><span>Erros</span></div>
+    <div class="stat"><b id="s-streak">0</b><span>Sequência</span></div>
+  </div>
+
+  <div class="sheet" id="sheet">
+    <div class="problem" aria-live="polite">
+      <div class="n" id="a">47</div>
+      <div class="op" id="op">+</div>
+      <div class="n" id="b">28</div>
+      <div class="bar"></div>
+      <div class="answer empty" id="ans">?</div>
+    </div>
+    <div class="feedback" id="fb"></div>
+  </div>
+
+  <div class="pad" id="pad">
+    <button>7</button><button>8</button><button>9</button>
+    <button>4</button><button>5</button><button>6</button>
+    <button>1</button><button>2</button><button>3</button>
+    <button class="del" data-k="del" aria-label="Apagar">⌫</button>
+    <button>0</button>
+    <button class="go" data-k="ok">OK</button>
+  </div>
+
+  <section class="mistakes">
+    <h2>Para revisar</h2>
+    <ul id="miss"><li class="none">Nenhum erro ainda.</li></ul>
+  </section>
+
+  <button class="reset" id="reset">Zerar placar</button>
+</div>
+
+<script>
+(() => {
+  const $ = id => document.getElementById(id);
+  const state = { mode: "add", limit: false, a: 0, b: 0, op: "+", input: "", locked: false, ok: 0, bad: 0, streak: 0, miss: [] };
+  const rnd = n => Math.floor(Math.random() * (n + 1));
+
+  try {
+    const saved = JSON.parse(localStorage.getItem("treino-contas") || "null");
+    if (saved) Object.assign(state, { mode: saved.mode || "add", limit: !!saved.limit });
+  } catch (e) {}
+
+  function save() {
+    try { localStorage.setItem("treino-contas", JSON.stringify({ mode: state.mode, limit: state.limit })); } catch (e) {}
+  }
+
+  function newProblem() {
+    const op = state.mode === "mix" ? (Math.random() < .5 ? "+" : "−") : (state.mode === "add" ? "+" : "−");
+    let a, b;
+    if (op === "+") {
+      a = rnd(99);
+      b = state.limit ? rnd(99 - a) : rnd(99);
+    } else {
+      a = rnd(99); b = rnd(a); // resultado nunca negativo
+    }
+    Object.assign(state, { a, b, op, input: "", locked: false });
+    render();
+  }
+
+  const result = () => state.op === "+" ? state.a + state.b : state.a - state.b;
+
+  function render() {
+    $("a").textContent = state.a;
+    $("b").textContent = state.b;
+    $("op").textContent = state.op;
+    const ans = $("ans");
+    if (!state.locked) {
+      ans.className = "answer" + (state.input ? "" : " empty");
+      ans.textContent = state.input || "?";
+      $("fb").textContent = ""; $("fb").className = "feedback";
+    }
+    $("s-ok").textContent = state.ok;
+    $("s-bad").textContent = state.bad;
+    $("s-streak").textContent = state.streak;
+    document.querySelectorAll(".modes button").forEach(b => b.setAttribute("aria-pressed", b.dataset.mode === state.mode));
+    $("limit").checked = state.limit;
+    const ul = $("miss");
+    ul.innerHTML = state.miss.length ? "" : '<li class="none">Nenhum erro ainda.</li>';
+    state.miss.slice(-12).reverse().forEach(m => {
+      const li = document.createElement("li");
+      li.innerHTML = `${m.a} ${m.op} ${m.b} = ${m.r}<s>${m.given}</s>`;
+      ul.appendChild(li);
+    });
+  }
+
+  function check() {
+    if (state.locked || state.input === "") return;
+    const given = parseInt(state.input, 10), r = result();
+    const ans = $("ans"), fb = $("fb");
+    state.locked = true;
+    if (given === r) {
+      state.ok++; state.streak++;
+      ans.className = "answer ok";
+      fb.className = "feedback ok";
+      fb.textContent = state.streak >= 5 && state.streak % 5 === 0 ? `Muito bem! ${state.streak} seguidas!` : "Certo!";
+      render();
+      setTimeout(newProblem, 700);
+    } else {
+      state.bad++; state.streak = 0;
+      state.miss.push({ a: state.a, b: state.b, op: state.op, r, given });
+      ans.className = "answer bad";
+      fb.className = "feedback bad";
+      fb.textContent = `Era ${r}. Toque OK para seguir.`;
+      const sh = $("sheet"); sh.classList.remove("shake"); void sh.offsetWidth; sh.classList.add("shake");
+      render();
+    }
+  }
+
+  function press(k) {
+    if (state.locked) { if (k === "ok") newProblem(); return; }
+    if (k === "ok") return check();
+    if (k === "del") state.input = state.input.slice(0, -1);
+    else if (state.input.length < 3) state.input = (state.input === "0" ? "" : state.input) + k;
+    render();
+  }
+
+  $("pad").addEventListener("click", e => {
+    const btn = e.target.closest("button"); if (!btn) return;
+    press(btn.dataset.k || btn.textContent);
+  });
+  document.addEventListener("keydown", e => {
+    if (/^[0-9]$/.test(e.key)) press(e.key);
+    else if (e.key === "Backspace") press("del");
+    else if (e.key === "Enter") { e.preventDefault(); press("ok"); }
+  });
+  document.querySelectorAll(".modes button").forEach(b => b.addEventListener("click", () => {
+    state.mode = b.dataset.mode; save(); newProblem();
+  }));
+  $("limit").addEventListener("change", e => { state.limit = e.target.checked; save(); newProblem(); });
+  $("reset").addEventListener("click", () => {
+    Object.assign(state, { ok: 0, bad: 0, streak: 0, miss: [] }); newProblem();
+  });
+
+  newProblem();
+})();
+</script>
