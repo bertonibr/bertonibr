@@ -15,6 +15,16 @@ import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.gestures.calculateCentroid
+import androidx.compose.foundation.gestures.calculateZoom
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.withFrameNanos
+import androidx.compose.ui.graphics.TransformOrigin
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.input.pointer.PointerEventPass
+import kotlinx.coroutines.launch
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.horizontalScroll
@@ -118,6 +128,9 @@ import java.util.IdentityHashMap
 import kotlin.math.abs
 import kotlin.math.min
 import android.graphics.Color as AColor
+
+private const val MIN_ZOOM = 0.5f
+private const val MAX_ZOOM = 4f
 
 private val PALETTE = listOf("#D32F2F", "#000000", "#1565C0", "#2E7D32", "#FFEB3B", "#FF9800")
     .map { AColor.parseColor(it) }
@@ -303,9 +316,9 @@ fun PdfStudioScreen(vm: PdfStudioViewModel) {
                         Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, "Próxima")
                     }
                     Spacer(Modifier.weight(1f))
-                    IconButton(onClick = { zoom = (zoom / 1.25f).coerceAtLeast(0.5f) }) { Icon(Icons.Filled.ZoomOut, "Reduzir") }
+                    IconButton(onClick = { zoom = (zoom / 1.25f).coerceAtLeast(MIN_ZOOM) }) { Icon(Icons.Filled.ZoomOut, "Reduzir") }
                     Text("${(zoom * 100).toInt()}%", modifier = Modifier.clickable { zoom = 1f })
-                    IconButton(onClick = { zoom = (zoom * 1.25f).coerceAtMost(4f) }) { Icon(Icons.Filled.ZoomIn, "Ampliar") }
+                    IconButton(onClick = { zoom = (zoom * 1.25f).coerceAtMost(MAX_ZOOM) }) { Icon(Icons.Filled.ZoomIn, "Ampliar") }
                     if (vm.speaking) {
                         IconButton(onClick = { vm.stopSpeaking() }) { Icon(Icons.Filled.Stop, "Parar leitura") }
                     } else {
@@ -582,6 +595,13 @@ private fun PageView(
     onEditArea: (Float, Float, Float, Float) -> Unit,
 ) {
     val density = LocalDensity.current
+    val vScroll = rememberScrollState()
+    val hScroll = rememberScrollState()
+    val scope = rememberCoroutineScope()
+    // Escala visual durante a pinça; ao soltar os dedos vira zoom de verdade (re-renderiza nítido).
+    var pinch by remember { mutableFloatStateOf(1f) }
+    var pivot by remember { mutableStateOf(Offset.Zero) }
+
     BoxWithConstraints(Modifier.fillMaxSize()) {
         val marginPx = with(density) { 12.dp.toPx() }
         val renderWidth = ((constraints.maxWidth - 2 * marginPx) * zoom).toInt().coerceAtLeast(64)
@@ -594,12 +614,56 @@ private fun PageView(
 
         Box(
             Modifier.fillMaxSize()
-                .verticalScroll(rememberScrollState(), enabled = navigate)
-                .horizontalScroll(rememberScrollState(), enabled = navigate),
+                // Pinça com dois dedos (funciona em qualquer ferramenta). Um dedo continua rolando/desenhando.
+                .pointerInput(zoom) {
+                    awaitEachGesture {
+                        awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Initial)
+                        var pinching = false
+                        do {
+                            val event = awaitPointerEvent(PointerEventPass.Initial)
+                            if (event.changes.count { it.pressed } >= 2) {
+                                if (!pinching) {
+                                    pinching = true
+                                    pivot = event.calculateCentroid(useCurrent = true)
+                                }
+                                pinch = (pinch * event.calculateZoom()).coerceIn(MIN_ZOOM / zoom, MAX_ZOOM / zoom)
+                                event.changes.forEach { it.consume() }
+                            }
+                        } while (event.changes.any { it.pressed })
+                        if (pinching) {
+                            val newZoom = (zoom * pinch).coerceIn(MIN_ZOOM, MAX_ZOOM)
+                            val ratio = newZoom / zoom
+                            val sx = hScroll.value
+                            val sy = vScroll.value
+                            val p = pivot
+                            pinch = 1f
+                            onZoom(newZoom)
+                            // Mantém sob os dedos o ponto onde a pinça começou.
+                            scope.launch {
+                                withFrameNanos { }
+                                withFrameNanos { }
+                                hScroll.scrollTo(((sx + p.x) * ratio - p.x).toInt().coerceAtLeast(0))
+                                vScroll.scrollTo(((sy + p.y) * ratio - p.y).toInt().coerceAtLeast(0))
+                            }
+                        }
+                    }
+                }
+                .verticalScroll(vScroll, enabled = navigate)
+                .horizontalScroll(hScroll, enabled = navigate),
         ) {
             Box(
                 Modifier.padding(12.dp)
                     .size(with(density) { renderWidth.toDp() }, with(density) { heightPx.toDp() })
+                    .graphicsLayer {
+                        scaleX = pinch
+                        scaleY = pinch
+                        val w = size.width.coerceAtLeast(1f)
+                        val h = size.height.coerceAtLeast(1f)
+                        transformOrigin = TransformOrigin(
+                            ((hScroll.value + pivot.x - marginPx) / w).coerceIn(0f, 1f),
+                            ((vScroll.value + pivot.y - marginPx) / h).coerceIn(0f, 1f),
+                        )
+                    }
                     .background(Color.White),
             ) {
                 Image(page.bitmap, null, Modifier.fillMaxSize(), contentScale = ContentScale.FillBounds)
