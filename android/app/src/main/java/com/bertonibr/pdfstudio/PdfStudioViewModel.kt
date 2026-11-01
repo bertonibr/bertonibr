@@ -24,6 +24,7 @@ import com.bertonibr.pdfstudio.model.PdfEditor
 import com.bertonibr.pdfstudio.service.ClaudeService
 import com.bertonibr.pdfstudio.service.Speech
 import com.tom_roush.pdfbox.android.PDFBoxResourceLoader
+import com.tom_roush.pdfbox.pdmodel.encryption.InvalidPasswordException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.asCoroutineDispatcher
 import kotlinx.coroutines.launch
@@ -78,6 +79,12 @@ class PdfStudioViewModel(app: Application) : AndroidViewModel(app) {
     var aiRunning by mutableStateOf(false); private set
     var extractedText by mutableStateOf<String?>(null)
 
+    /** PDF que pediu senha (a tela mostra o diálogo de senha). */
+    var passwordRequest by mutableStateOf<Uri?>(null)
+
+    /** Só para testes automáticos: aponta o Claude para um servidor simulado. */
+    var claudeBaseUrl: String? = null
+
     private var lastRenderWidth = 0
 
     private val speech = Speech(app) { s -> viewModelScope.launch { speaking = s } }
@@ -129,10 +136,18 @@ class PdfStudioViewModel(app: Application) : AndroidViewModel(app) {
 
     // ------------------------------------------------------------ documento
 
-    fun open(uri: Uri) = run("Abrindo...") {
+    fun open(uri: Uri, password: String? = null) = run("Abrindo...") {
         val bytes = readBytes(uri)
         val name = displayName(uri)
-        val e = PdfEditor.open(ctx, bytes)
+        val e = try {
+            PdfEditor.open(ctx, bytes, password)
+        } catch (ex: InvalidPasswordException) {
+            ui {
+                passwordRequest = uri
+                message = if (password == null) "Este PDF é protegido por senha." else "Senha incorreta."
+            }
+            return@run
+        }
         setEditor(e, name, uri)
     }
 
@@ -441,7 +456,7 @@ class PdfStudioViewModel(app: Application) : AndroidViewModel(app) {
                     else e.toBytes(true) to e.allText()
                 }
                 withContext(Dispatchers.IO) {
-                    ClaudeService.ask(key, bytes, text, instruction) { delta ->
+                    ClaudeService.ask(key, bytes, text, instruction, claudeBaseUrl) { delta ->
                         viewModelScope.launch { aiText += delta }
                     }
                 }
@@ -455,7 +470,10 @@ class PdfStudioViewModel(app: Application) : AndroidViewModel(app) {
 
     override fun onCleared() {
         speech.shutdown()
-        editor?.close()
+        val e = editor
+        editor = null
+        // Fecha na própria thread do PDF, depois de qualquer tarefa em andamento.
+        pdf.executor.execute { e?.close() }
         pdf.close()
     }
 }

@@ -1,5 +1,6 @@
 package com.bertonibr.pdfstudio.ui
 
+import android.app.Activity
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
@@ -8,6 +9,7 @@ import android.graphics.BitmapFactory
 import android.graphics.Paint
 import android.graphics.Typeface
 import android.net.Uri
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.Canvas
@@ -40,6 +42,7 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -117,6 +120,7 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -300,29 +304,37 @@ fun PdfStudioScreen(vm: PdfStudioViewModel) {
         },
         bottomBar = {
             if (vm.hasDocument) {
-                BottomAppBar {
-                    IconButton(onClick = { vm.goTo(vm.current - 1) }, enabled = vm.current > 0) {
+                BottomAppBar(contentPadding = PaddingValues(horizontal = 4.dp)) {
+                    val small = Modifier.size(40.dp)
+                    IconButton(onClick = { vm.goTo(vm.current - 1) }, enabled = vm.current > 0, modifier = small) {
                         Icon(Icons.AutoMirrored.Filled.KeyboardArrowLeft, "Anterior")
                     }
                     Text(
                         "${vm.current + 1} / ${vm.pageCount}",
+                        maxLines = 1,
                         modifier = Modifier.clickable {
                             textRequest = TextRequest("Ir para página", "Página (1-${vm.pageCount})", singleLine = true) {
                                 it.trim().toIntOrNull()?.let { p -> vm.goTo(p - 1) }
                             }
-                        }.padding(8.dp),
+                        }.padding(horizontal = 4.dp, vertical = 8.dp),
                     )
-                    IconButton(onClick = { vm.goTo(vm.current + 1) }, enabled = vm.current < vm.pageCount - 1) {
+                    IconButton(onClick = { vm.goTo(vm.current + 1) }, enabled = vm.current < vm.pageCount - 1, modifier = small) {
                         Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, "Próxima")
                     }
                     Spacer(Modifier.weight(1f))
-                    IconButton(onClick = { zoom = (zoom / 1.25f).coerceAtLeast(MIN_ZOOM) }) { Icon(Icons.Filled.ZoomOut, "Reduzir") }
-                    Text("${(zoom * 100).toInt()}%", modifier = Modifier.clickable { zoom = 1f })
-                    IconButton(onClick = { zoom = (zoom * 1.25f).coerceAtMost(MAX_ZOOM) }) { Icon(Icons.Filled.ZoomIn, "Ampliar") }
+                    IconButton(onClick = { zoom = (zoom / 1.25f).coerceAtLeast(MIN_ZOOM) }, modifier = small) {
+                        Icon(Icons.Filled.ZoomOut, "Reduzir")
+                    }
+                    Text("${(zoom * 100).toInt()}%", maxLines = 1, modifier = Modifier.clickable { zoom = 1f })
+                    IconButton(onClick = { zoom = (zoom * 1.25f).coerceAtMost(MAX_ZOOM) }, modifier = small) {
+                        Icon(Icons.Filled.ZoomIn, "Ampliar")
+                    }
                     if (vm.speaking) {
-                        IconButton(onClick = { vm.stopSpeaking() }) { Icon(Icons.Filled.Stop, "Parar leitura") }
+                        IconButton(onClick = { vm.stopSpeaking() }, modifier = small) { Icon(Icons.Filled.Stop, "Parar leitura") }
                     } else {
-                        IconButton(onClick = { vm.readPageAloud() }) { Icon(Icons.AutoMirrored.Filled.VolumeUp, "Ler página") }
+                        IconButton(onClick = { vm.readPageAloud() }, modifier = small) {
+                            Icon(Icons.AutoMirrored.Filled.VolumeUp, "Ler página")
+                        }
                     }
                 }
             }
@@ -442,6 +454,25 @@ fun PdfStudioScreen(vm: PdfStudioViewModel) {
         }
     }
 
+    vm.passwordRequest?.let { uri ->
+        TextInputDialog(
+            title = "PDF protegido",
+            label = "Senha",
+            singleLine = true,
+            password = true,
+            confirm = "Abrir",
+            onDismiss = { vm.passwordRequest = null },
+            onConfirm = {
+                vm.passwordRequest = null
+                vm.open(uri, it)
+            },
+        )
+    }
+
+    BackHandler(enabled = vm.dirty && confirmDiscard == null) {
+        confirmDiscard = { (context as? Activity)?.finish() }
+    }
+
     vm.extractedText?.let { text ->
         TextViewerDialog(
             text = text,
@@ -540,6 +571,7 @@ private fun Welcome(onOpen: () -> Unit, onImages: () -> Unit) {
 private fun ToolRow(vm: PdfStudioViewModel) {
     Column(Modifier.background(MaterialTheme.colorScheme.surface)) {
         LazyRow(
+            modifier = Modifier.testTag("tools"),
             contentPadding = PaddingValues(horizontal = 8.dp),
             horizontalArrangement = Arrangement.spacedBy(6.dp),
         ) {
@@ -556,20 +588,31 @@ private fun ToolRow(vm: PdfStudioViewModel) {
             Row(
                 Modifier.fillMaxWidth().padding(horizontal = 8.dp),
                 verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
             ) {
-                PALETTE.forEach { c ->
-                    Box(
-                        Modifier.size(26.dp).background(Color(c), CircleShape)
-                            .border(if (vm.color == c) 3.dp else 1.dp, if (vm.color == c) MaterialTheme.colorScheme.primary else Color.Gray, CircleShape)
-                            .clickable { vm.color = c },
-                    )
+                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    PALETTE.forEach { c ->
+                        Box(
+                            Modifier.size(24.dp).background(Color(c), CircleShape)
+                                .border(
+                                    if (vm.color == c) 3.dp else 1.dp,
+                                    if (vm.color == c) MaterialTheme.colorScheme.primary else Color.Gray,
+                                    CircleShape,
+                                )
+                                .clickable { vm.color = c },
+                        )
+                    }
                 }
                 Spacer(Modifier.weight(1f))
-                TextButton(onClick = { vm.textSize = (vm.textSize - 2).coerceAtLeast(6f) }) { Text("A−") }
-                Text("${vm.textSize.toInt()}")
-                TextButton(onClick = { vm.textSize = (vm.textSize + 2).coerceAtMost(72f) }) { Text("A+") }
-                IconButton(onClick = { vm.undo() }) { Icon(Icons.AutoMirrored.Filled.Undo, "Desfazer") }
+                IconButton(onClick = { vm.textSize = (vm.textSize - 2).coerceAtLeast(6f) }, modifier = Modifier.size(36.dp)) {
+                    Text("A−")
+                }
+                Text("${vm.textSize.toInt()}", maxLines = 1)
+                IconButton(onClick = { vm.textSize = (vm.textSize + 2).coerceAtMost(72f) }, modifier = Modifier.size(36.dp)) {
+                    Text("A+")
+                }
+                IconButton(onClick = { vm.undo() }, modifier = Modifier.size(36.dp)) {
+                    Icon(Icons.AutoMirrored.Filled.Undo, "Desfazer")
+                }
             }
         } else if (vm.tool != Tool.NAVIGATE) {
             Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -653,6 +696,7 @@ private fun PageView(
         ) {
             Box(
                 Modifier.padding(12.dp)
+                    .testTag("page")
                     .size(with(density) { renderWidth.toDp() }, with(density) { heightPx.toDp() })
                     .graphicsLayer {
                         scaleX = pinch
@@ -881,7 +925,10 @@ private fun SmallIcon(icon: ImageVector, desc: String, enabled: Boolean = true, 
 @Composable
 private fun AssistantPanel(vm: PdfStudioViewModel, onConfigureKey: () -> Unit, onCopy: () -> Unit) {
     var question by remember { mutableStateOf("") }
-    Column(Modifier.fillMaxHeight(0.9f).padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+    Column(
+        Modifier.fillMaxHeight(0.9f).imePadding().padding(horizontal = 16.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Icon(Icons.Filled.AutoAwesome, null, tint = MaterialTheme.colorScheme.primary)
             Spacer(Modifier.width(8.dp))

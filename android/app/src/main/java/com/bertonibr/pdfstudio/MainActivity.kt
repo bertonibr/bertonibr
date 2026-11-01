@@ -38,7 +38,7 @@ class MainActivity : ComponentActivity() {
     }
 
     /** "Abrir com" PDF Studio a partir de outro app. */
-    private fun handleIntent(intent: Intent?) {
+    fun handleIntent(intent: Intent?) {
         if (intent?.action == Intent.ACTION_VIEW) {
             intent.data?.let { vm.open(it) }
         }

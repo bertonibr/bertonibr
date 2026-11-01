@@ -13,6 +13,7 @@ import com.tom_roush.pdfbox.pdmodel.PDPage
 import com.tom_roush.pdfbox.pdmodel.PDPageContentStream
 import com.tom_roush.pdfbox.pdmodel.common.PDRectangle
 import com.tom_roush.pdfbox.pdmodel.graphics.image.JPEGFactory
+import com.tom_roush.pdfbox.pdmodel.interactive.annotation.PDAnnotationLink
 import com.tom_roush.pdfbox.text.PDFTextStripper
 import com.tom_roush.pdfbox.text.PDFTextStripperByArea
 import java.io.ByteArrayOutputStream
@@ -21,6 +22,7 @@ import java.io.File
 import java.util.IdentityHashMap
 import java.util.Locale
 import kotlin.math.min
+import kotlin.math.sqrt
 
 /**
  * Documento aberto + anotações pendentes. A edição usa o PdfBox-Android e a
@@ -44,8 +46,20 @@ class PdfEditor private constructor(
     val pageCount: Int get() = doc.numberOfPages
 
     companion object {
-        fun open(context: Context, bytes: ByteArray): PdfEditor =
-            PdfEditor(context, PDDocument.load(bytes)).also { it.refreshRenderer() }
+        /** Maior bitmap de página (pixels) — evita falta de memória com zoom alto. */
+        private const val MAX_PIXELS = 16_000_000f
+
+        /**
+         * Abre o PDF. Lança [com.tom_roush.pdfbox.pdmodel.encryption.InvalidPasswordException]
+         * se ele exigir senha e [password] estiver ausente ou errada.
+         */
+        fun open(context: Context, bytes: ByteArray, password: String? = null): PdfEditor {
+            val doc = if (password.isNullOrEmpty()) PDDocument.load(bytes) else PDDocument.load(bytes, password)
+            // PDFs protegidos (ex.: só "senha do proprietário") não podem ser regravados com a
+            // proteção original sem a senha dela; removemos a proteção ao salvar.
+            if (doc.isEncrypted) doc.setAllSecurityToBeRemoved(true)
+            return PdfEditor(context, doc).also { it.refreshRenderer() }
+        }
 
         fun fromImages(context: Context, images: List<Bitmap>): PdfEditor {
             val doc = PDDocument()
@@ -76,13 +90,36 @@ class PdfEditor private constructor(
 
     // ------------------------------------------------------------ exibição
 
-    /** Regrava a cópia de exibição e reabre o renderizador nativo. */
+    /**
+     * Regrava a cópia de exibição e reabre o renderizador nativo. Na cópia, as
+     * anotações/formulários já existentes no PDF são desenhados no conteúdo,
+     * pois o PdfRenderer do Android não os mostra.
+     */
     private fun refreshRenderer() {
         renderer?.close()
         pfd?.close()
-        doc.save(renderFile)
+        renderFile.writeBytes(displayBytes(toBytes(false)))
         pfd = ParcelFileDescriptor.open(renderFile, ParcelFileDescriptor.MODE_READ_ONLY)
         renderer = PdfRenderer(pfd!!)
+    }
+
+    /** Só vale a pena fazer a cópia se houver anotações/formulário no documento. */
+    private fun hasExistingAnnotations(): Boolean = try {
+        doc.documentCatalog.acroForm != null ||
+            doc.pages.any { p -> p.annotations.any { it !is PDAnnotationLink } }
+    } catch (e: Exception) {
+        true
+    }
+
+    private fun displayBytes(pdf: ByteArray): ByteArray = if (!hasExistingAnnotations()) pdf else try {
+        PDDocument.load(pdf).use { copy ->
+            ExistingAnnotations.flattenForDisplay(copy)
+            val out = ByteArrayOutputStream()
+            copy.save(out)
+            out.toByteArray()
+        }
+    } catch (e: Exception) {
+        pdf // se algo der errado, mostra sem as anotações antigas
     }
 
     class Rendered(val bitmap: Bitmap, val widthPt: Float, val heightPt: Float)
@@ -92,9 +129,14 @@ class PdfEditor private constructor(
         renderer!!.openPage(index).use { page ->
             val wPt = page.width.toFloat()
             val hPt = page.height.toFloat()
-            val w = widthPx.coerceIn(16, 4096)
-            val h = (w * hPt / wPt).toInt().coerceAtLeast(16)
-            val bmp = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
+            var w = widthPx.coerceIn(16, 4096).toFloat()
+            var h = w * hPt / wPt
+            if (w * h > MAX_PIXELS) {
+                val s = sqrt(MAX_PIXELS / (w * h))
+                w *= s
+                h *= s
+            }
+            val bmp = Bitmap.createBitmap(w.toInt().coerceAtLeast(16), h.toInt().coerceAtLeast(16), Bitmap.Config.ARGB_8888)
             bmp.eraseColor(Color.WHITE)
             page.render(bmp, null, null, PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY)
             return Rendered(bmp, wPt, hPt)
@@ -105,7 +147,7 @@ class PdfEditor private constructor(
     fun renderFlattened(index: Int, dpi: Int): Bitmap {
         val tmp = File(context.cacheDir, "export-${System.nanoTime()}.pdf")
         try {
-            tmp.writeBytes(toBytes(true))
+            tmp.writeBytes(displayBytes(toBytes(true)))
             ParcelFileDescriptor.open(tmp, ParcelFileDescriptor.MODE_READ_ONLY).use { fd ->
                 PdfRenderer(fd).use { r ->
                     r.openPage(index).use { page ->

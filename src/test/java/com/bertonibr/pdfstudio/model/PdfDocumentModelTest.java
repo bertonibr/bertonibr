@@ -98,6 +98,39 @@ class PdfDocumentModelTest {
         }
     }
 
+    private File protectedPdf(String owner, String user) throws Exception {
+        File f = tmp.resolve("protegido-" + user + ".pdf").toFile();
+        try (PDDocument d = Loader.loadPDF(sample(1))) {
+            var perms = new org.apache.pdfbox.pdmodel.encryption.AccessPermission();
+            perms.setCanModify(false);
+            var policy = new org.apache.pdfbox.pdmodel.encryption.StandardProtectionPolicy(owner, user, perms);
+            policy.setEncryptionKeyLength(128);
+            d.protect(policy);
+            d.save(f);
+        }
+        return f;
+    }
+
+    @Test
+    void ownerPasswordPdfCanBeAnnotatedAndSaved() throws Exception {
+        File out = tmp.resolve("prot-out.pdf").toFile();
+        try (PdfDocumentModel m = PdfDocumentModel.open(protectedPdf("dono", ""))) {
+            m.addAnnotation(0, new Annotation.Text(72, 100, "Anotado", 12, Color.BLACK));
+            m.save(out);
+        }
+        assertTrue(text(out).contains("Anotado"));
+    }
+
+    @Test
+    void userPasswordPdfNeedsPassword() throws Exception {
+        File f = protectedPdf("dono", "1234");
+        assertThrows(org.apache.pdfbox.pdmodel.encryption.InvalidPasswordException.class, () -> PdfDocumentModel.open(f));
+        try (PdfDocumentModel m = PdfDocumentModel.open(f, "1234")) {
+            assertTrue(m.allText().contains("Pagina 1"));
+            assertTrue(m.toBytes(true).length > 0);
+        }
+    }
+
     @Test
     void imageAnnotationAndImagesToPdf() throws Exception {
         java.awt.image.BufferedImage img = new java.awt.image.BufferedImage(40, 20, java.awt.image.BufferedImage.TYPE_INT_ARGB);

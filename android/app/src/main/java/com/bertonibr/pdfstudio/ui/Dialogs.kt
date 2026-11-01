@@ -38,6 +38,7 @@ import androidx.compose.ui.graphics.StrokeJoin
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import java.io.ByteArrayOutputStream
@@ -151,6 +152,7 @@ fun SignatureDialog(onDismiss: () -> Unit, onDone: (ByteArray) -> Unit) {
                     modifier = Modifier
                         .fillMaxWidth()
                         .height(180.dp)
+                        .testTag("signaturePad")
                         .background(Color.White)
                         .border(1.dp, Color.Gray)
                         .pointerInput(Unit) {

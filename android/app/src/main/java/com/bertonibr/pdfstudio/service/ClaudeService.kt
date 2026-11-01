@@ -33,7 +33,14 @@ object ClaudeService {
      * Envia o PDF (ou o texto extraído, se o PDF for grande demais) com a
      * instrução e entrega a resposta em partes para [onDelta].
      */
-    fun ask(apiKey: String, pdf: ByteArray?, fallbackText: String, instruction: String, onDelta: (String) -> Unit) {
+    fun ask(
+        apiKey: String,
+        pdf: ByteArray?,
+        fallbackText: String,
+        instruction: String,
+        baseUrl: String? = null,
+        onDelta: (String) -> Unit,
+    ) {
         val content = mutableListOf<BetaContentBlockParam>()
         if (pdf != null && pdf.size <= MAX_PDF_BYTES) {
             content += BetaContentBlockParam.ofDocument(
@@ -59,7 +66,9 @@ object ClaudeService {
             .addUserMessageOfContentBlockParams(content)
             .build()
 
-        val client = AnthropicOkHttpClient.builder().apiKey(apiKey).build()
+        val builder = AnthropicOkHttpClient.builder().apiKey(apiKey)
+        if (baseUrl != null) builder.baseUrl(baseUrl)
+        val client = builder.build()
         var stop: BetaStopReason? = null
         try {
             client.beta().messages().createStreaming(params).use { stream ->

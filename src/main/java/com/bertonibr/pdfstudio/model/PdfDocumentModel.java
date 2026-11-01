@@ -51,8 +51,22 @@ public final class PdfDocumentModel implements Closeable {
     }
 
     public static PdfDocumentModel open(File f) throws IOException {
-        // Carrega em memória para permitir salvar por cima do mesmo arquivo.
-        return new PdfDocumentModel(Loader.loadPDF(Files.readAllBytes(f.toPath())), f);
+        return open(f, null);
+    }
+
+    /**
+     * Abre o PDF (em memória, para permitir salvar por cima do mesmo arquivo).
+     * Lança {@link org.apache.pdfbox.pdmodel.encryption.InvalidPasswordException}
+     * se o arquivo exigir senha e ela estiver ausente ou errada.
+     */
+    public static PdfDocumentModel open(File f, String password) throws IOException {
+        byte[] bytes = Files.readAllBytes(f.toPath());
+        PDDocument doc = password == null || password.isEmpty()
+                ? Loader.loadPDF(bytes) : Loader.loadPDF(bytes, password);
+        // PDFs protegidos não podem ser regravados com a proteção original sem a
+        // senha do proprietário; a proteção é removida ao salvar.
+        if (doc.isEncrypted()) doc.setAllSecurityToBeRemoved(true);
+        return new PdfDocumentModel(doc, f);
     }
 
     public static PdfDocumentModel fromImages(List<File> images) throws IOException {

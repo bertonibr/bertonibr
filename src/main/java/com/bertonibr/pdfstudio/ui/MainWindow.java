@@ -497,7 +497,36 @@ public final class MainWindow {
 
     public void open(File f) {
         if (!confirmDiscard()) return;
-        runPdf("Abrindo " + f.getName() + "...", () -> PdfDocumentModel.open(f), this::setModel);
+        openWithPassword(f, null);
+    }
+
+    /** Abre; se o PDF pedir senha, pergunta e tenta de novo. */
+    private void openWithPassword(File f, String password) {
+        runPdf("Abrindo " + f.getName() + "...", () -> {
+            try {
+                return PdfDocumentModel.open(f, password);
+            } catch (org.apache.pdfbox.pdmodel.encryption.InvalidPasswordException e) {
+                return null; // precisa de senha
+            }
+        }, m -> {
+            if (m != null) {
+                setModel(m);
+                return;
+            }
+            Dialog<String> d = new Dialog<>();
+            d.initOwner(stage);
+            d.setTitle("PDF protegido");
+            d.setHeaderText(password == null ? "Este PDF é protegido por senha." : "Senha incorreta. Tente de novo.");
+            PasswordField pf = new PasswordField();
+            pf.setPromptText("Senha");
+            VBox box = new VBox(8, pf);
+            box.setPadding(new Insets(10));
+            d.getDialogPane().setContent(box);
+            d.getDialogPane().getButtonTypes().addAll(ButtonType.OK, ButtonType.CANCEL);
+            d.setResultConverter(bt -> bt == ButtonType.OK ? pf.getText() : null);
+            Platform.runLater(pf::requestFocus);
+            d.showAndWait().ifPresent(pwd -> openWithPassword(f, pwd));
+        });
     }
 
     private void createFromImages() {
