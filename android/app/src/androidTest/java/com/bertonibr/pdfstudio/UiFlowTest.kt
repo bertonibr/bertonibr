@@ -12,6 +12,8 @@ import androidx.compose.ui.test.doubleClick
 import androidx.compose.ui.test.hasClickAction
 import androidx.compose.ui.test.hasSetTextAction
 import androidx.compose.ui.test.hasText
+import androidx.compose.ui.test.isRoot
+import androidx.compose.ui.test.printToString
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.onAllNodesWithContentDescription
 import androidx.compose.ui.test.onAllNodesWithText
@@ -86,6 +88,21 @@ class UiFlowTest {
             swipe(Offset(width * fromX, height * fromY), Offset(width * toX, height * toY), durationMillis = 300)
         }
         rule.waitForIdle()
+    }
+
+    /** Árvore de acessibilidade de todas as janelas — vai na mensagem de erro. */
+    private fun dumpTree(): String = try {
+        rule.onAllNodes(isRoot()).printToString()
+    } catch (e: Throwable) {
+        "(árvore indisponível: $e)"
+    }
+
+    private fun waitFor(what: String, timeoutMs: Long = 10_000, condition: () -> Boolean) {
+        try {
+            rule.waitUntil(timeoutMs, condition)
+        } catch (e: Throwable) {
+            throw AssertionError("Tempo esgotado esperando: $what\n--- Tela ---\n${dumpTree()}", e)
+        }
     }
 
     private fun exists(text: String, substring: Boolean = false) =
@@ -173,9 +190,9 @@ class UiFlowTest {
         selectTool("Editar texto")
         rule.onNodeWithTag("page").performTouchInput {
             val k = width / 595f
-            swipe(Offset(60f * k, 112f * k), Offset(330f * k, 160f * k), durationMillis = 300)
+            swipe(Offset(40f * k, 112f * k), Offset(330f * k, 160f * k), durationMillis = 300)
         }
-        rule.waitUntil(10_000) { rule.onAllNodesWithText("Editar texto").fetchSemanticsNodes().size >= 2 }
+        waitFor("diálogo Editar texto") { rule.onAllNodesWithText("Editar texto").fetchSemanticsNodes().size >= 2 }
         rule.onNode(hasSetTextAction()).assertTextContains("Pagina 1", substring = true)
         rule.onNode(hasSetTextAction()).performTextReplacement("Novo texto")
         rule.onNodeWithText("OK").performClick()
@@ -202,13 +219,19 @@ class UiFlowTest {
         rule.waitUntil(5_000) { exists("Páginas (3)") }
 
         rule.onAllNodesWithContentDescription("Girar")[0].performClick()
-        rule.waitUntil(15_000) { vm.page?.let { it.widthPt > it.heightPt } == true }
+        waitFor("página 1 girada", 15_000) { vm.busy == null && vm.page?.let { it.widthPt > it.heightPt } == true }
+        waitFor("botões da grade de páginas") {
+            rule.onAllNodesWithContentDescription("Excluir").fetchSemanticsNodes().size == 3
+        }
 
         rule.onAllNodesWithContentDescription("Excluir")[0].performClick()
-        rule.waitUntil(5_000) { exists("Excluir página 1?") }
+        waitFor("confirmação de exclusão") { exists("Excluir página 1?") }
         rule.onNodeWithText("Excluir").performClick()
-        rule.waitUntil(15_000) { vm.pageCount == 2 }
-        rule.waitUntil(5_000) { exists("Páginas (2)") }
+        waitFor("2 páginas", 15_000) { vm.pageCount == 2 && vm.busy == null }
+        waitFor("título da grade com 2 páginas") { exists("Páginas (2)") }
+        waitFor("botões após excluir") {
+            rule.onAllNodesWithContentDescription("Mover para frente").fetchSemanticsNodes().isNotEmpty()
+        }
 
         rule.onAllNodesWithContentDescription("Mover para frente")[0].performClick()
         rule.waitUntil(15_000) { vm.busy == null && vm.current == 1 }
@@ -253,9 +276,10 @@ class UiFlowTest {
         server.enqueue(TestPdfs.claudeStream("Resposta ", "da pergunta"))
         server.start()
         try {
+            val url = server.url("/").toString() // resolve o host aqui, fora da thread de interface
             rule.runOnUiThread {
                 vm.apiKey = "sk-test"
-                vm.claudeBaseUrl = server.url("/").toString()
+                vm.claudeBaseUrl = url
             }
             rule.onNodeWithContentDescription("Claude").performClick()
             rule.waitUntil(5_000) { exists("Resumir documento") }

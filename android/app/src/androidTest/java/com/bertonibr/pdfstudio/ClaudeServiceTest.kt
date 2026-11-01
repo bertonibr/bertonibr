@@ -43,7 +43,9 @@ class ClaudeServiceTest {
 
         val req = server.takeRequest()
         assertTrue(req.path, req.path!!.startsWith("/v1/messages"))
-        assertEquals("sk-test", req.getHeader("x-api-key"))
+        // O SDK envia a chave em "X-Api-Key" ou "Authorization: Bearer" (versões novas).
+        val key = req.getHeader("x-api-key") ?: req.getHeader("Authorization")?.removePrefix("Bearer ")
+        assertEquals("sk-test", key)
         assertTrue(req.getHeader("anthropic-beta").orEmpty().contains("server-side-fallback-2026-07-01"))
         val body = req.body.readUtf8()
         assertTrue(body, body.contains("\"model\":\"claude-opus-5-5\""))

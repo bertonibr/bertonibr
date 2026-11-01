@@ -9,7 +9,6 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
-import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -156,16 +155,16 @@ fun SignatureDialog(onDismiss: () -> Unit, onDone: (ByteArray) -> Unit) {
                         .background(Color.White)
                         .border(1.dp, Color.Gray)
                         .pointerInput(Unit) {
-                            detectDragGestures(
-                                onDragStart = { currentStroke = listOf(it) },
-                                onDrag = { change, _ ->
-                                    change.consume()
-                                    currentStroke = currentStroke + change.position
-                                },
-                                onDragEnd = {
-                                    if (currentStroke.size > 1) strokes.add(currentStroke)
+                            detectExactDrag(
+                                onStart = { currentStroke = listOf(it) },
+                                onMove = { currentStroke = currentStroke + it },
+                                onEnd = {
+                                    // Toque curto vira um ponto (ex.: pingo do "i").
+                                    val s = currentStroke
+                                    strokes.add(if (s.size == 1) s + (s[0] + Offset(0.5f, 0.5f)) else s)
                                     currentStroke = emptyList()
                                 },
+                                onCancel = { currentStroke = emptyList() },
                             )
                         }
                 ) {

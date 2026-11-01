@@ -27,7 +27,6 @@ import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.PointerEventPass
 import kotlinx.coroutines.launch
-import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
@@ -739,16 +738,15 @@ private fun AnnotationLayer(
                 Tool.NAVIGATE -> detectTapGestures(onDoubleTap = { onZoom(if (zoom > 1.01f) 1f else 2f) })
                 Tool.TEXT -> detectTapGestures { onTextAt(it.x / k, it.y / k) }
                 Tool.SIGN -> detectTapGestures { onSignAt(it.x / k, it.y / k) }
-                Tool.INK -> detectDragGestures(
-                    onDragStart = { inkPoints = listOf(it) },
-                    onDrag = { change, _ ->
-                        change.consume()
-                        inkPoints = inkPoints + change.position
-                    },
-                    onDragEnd = {
-                        if (inkPoints.size > 1) {
-                            val arr = FloatArray(inkPoints.size * 2)
-                            inkPoints.forEachIndexed { i, p ->
+                Tool.INK -> detectExactDrag(
+                    onStart = { inkPoints = listOf(it) },
+                    onMove = { inkPoints = inkPoints + it },
+                    onEnd = {
+                        // Um toque sem arrastar vira um ponto (ex.: pingo do "i").
+                        val pts = if (inkPoints.size == 1) inkPoints + (inkPoints[0] + Offset(0.5f, 0.5f)) else inkPoints
+                        if (pts.size > 1) {
+                            val arr = FloatArray(pts.size * 2)
+                            pts.forEachIndexed { i, p ->
                                 arr[2 * i] = p.x / k
                                 arr[2 * i + 1] = p.y / k
                             }
@@ -756,18 +754,15 @@ private fun AnnotationLayer(
                         }
                         inkPoints = emptyList()
                     },
-                    onDragCancel = { inkPoints = emptyList() },
+                    onCancel = { inkPoints = emptyList() },
                 )
-                Tool.HIGHLIGHT, Tool.WHITEOUT, Tool.EDIT_TEXT -> detectDragGestures(
-                    onDragStart = {
+                Tool.HIGHLIGHT, Tool.WHITEOUT, Tool.EDIT_TEXT -> detectExactDrag(
+                    onStart = {
                         dragStart = it
                         dragEnd = it
                     },
-                    onDrag = { change, _ ->
-                        change.consume()
-                        dragEnd = change.position
-                    },
-                    onDragEnd = {
+                    onMove = { dragEnd = it },
+                    onEnd = {
                         val s = dragStart
                         val e = dragEnd
                         dragStart = null
@@ -784,7 +779,7 @@ private fun AnnotationLayer(
                             }
                         }
                     },
-                    onDragCancel = {
+                    onCancel = {
                         dragStart = null
                         dragEnd = null
                     },
