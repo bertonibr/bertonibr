@@ -41,7 +41,8 @@ java -jar target/pdf-studio.jar [arquivo.pdf]
 
 A versão Android nativa (Kotlin + Jetpack Compose) fica em `android/`, com os mesmos recursos adaptados para toque. Ela também aparece em "Abrir com" quando você toca num PDF em outro app.
 
-- **APK pronto:** a cada push, o GitHub Actions compila o app. Para baixar, abra *Actions → Android APK → execução mais recente → Artifacts → pdf-studio-apk*, extraia o `.apk` e instale no celular (permita "instalar apps desconhecidos").
+- **APK pronto:** baixe direto em <https://github.com/bertonibr/bertonibr/releases/latest/download/pdf-studio.apk> e instale no celular (permita "instalar apps desconhecidos").
+- **Testes automáticos:** a cada mudança, o GitHub Actions roda os testes num emulador Android (motor de PDF, anotações, páginas, senhas, Claude com servidor simulado e fluxos da interface). O APK só é publicado se todos passarem. Para rodar localmente com um aparelho/emulador conectado: `./gradlew connectedDebugAndroidTest`.
 - **Compilar localmente:** abra a pasta `android/` no Android Studio ou rode `./gradlew assembleDebug`.
 - Requer Android 8.0 ou mais recente.
 
