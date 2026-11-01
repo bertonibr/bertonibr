@@ -82,8 +82,13 @@ jobs:
       - uses: gradle/actions/setup-gradle@v4
       - name: Compilar APK
         run: |
-          ./gradlew --no-daemon assembleDebug
+          ./gradlew --no-daemon assembleDebug -PversionCode=${{ github.run_number }}
           cp app/build/outputs/apk/debug/app-debug.apk pdf-studio.apk
+      - name: Conferir assinatura (tem que ser sempre a mesma, senão a atualização não instala)
+        run: |
+          APKSIGNER="$(ls -d "$ANDROID_HOME"/build-tools/*/ | sort -V | tail -1)apksigner"
+          "$APKSIGNER" verify --print-certs pdf-studio.apk | tee certs.txt
+          grep -q "ed012cc79f000f85adf4cc962ac1b26353c891d7cec1d34c703cd6198803e93c" certs.txt
       - uses: actions/upload-artifact@v4
         with:
           name: pdf-studio-apk
@@ -96,6 +101,6 @@ jobs:
           target_commitish: ${{ github.sha }}
           make_latest: true
           body: |
-            APK do PDF Studio para Android 8.0+ (testado automaticamente em emulador).
-            Baixe o arquivo pdf-studio.apk abaixo e instale no celular.
+            PDF Studio versão 1.1.${{ github.run_number }} para Android 8.0+ (testado automaticamente em emulador).
+            Baixe o arquivo pdf-studio.apk abaixo e instale no celular. A versão aparece na tela inicial e no menu ⋮ do app.
           files: android/pdf-studio.apk

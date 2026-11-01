@@ -291,6 +291,8 @@ fun PdfStudioScreen(vm: PdfStudioViewModel) {
                                 MenuEntry("Nova assinatura...", true, close) { showSignature = true }
                                 MenuEntry("Chave de API do Claude...", true, close) { showApiKey = true }
                                 MenuEntry("Fechar documento", vm.hasDocument, close) { guarded { vm.closeDocument() } }
+                                HorizontalDivider()
+                                DropdownMenuItem(text = { Text("Versão ${appVersion()}") }, enabled = false, onClick = {})
                             }
                         }
                     },
@@ -510,6 +512,19 @@ fun PdfStudioScreen(vm: PdfStudioViewModel) {
     }
 }
 
+/** Versão instalada (ex.: 1.1.12) — para conferir se a atualização entrou. */
+@Composable
+private fun appVersion(): String {
+    val context = LocalContext.current
+    return remember {
+        try {
+            context.packageManager.getPackageInfo(context.packageName, 0).versionName ?: "?"
+        } catch (e: Exception) {
+            "?"
+        }
+    }
+}
+
 @Composable
 private fun MenuEntry(text: String, enabled: Boolean, close: () -> Unit, action: () -> Unit) {
     DropdownMenuItem(text = { Text(text) }, enabled = enabled, onClick = {
@@ -563,6 +578,8 @@ private fun Welcome(onOpen: () -> Unit, onImages: () -> Unit) {
         Button(onClick = onOpen) { Text("Abrir PDF") }
         Spacer(Modifier.height(8.dp))
         OutlinedButton(onClick = onImages) { Text("Criar PDF a partir de imagens", color = Color.White) }
+        Spacer(Modifier.height(24.dp))
+        Text("Versão ${appVersion()}", color = Color.White.copy(alpha = 0.6f), style = MaterialTheme.typography.bodySmall)
     }
 }
 

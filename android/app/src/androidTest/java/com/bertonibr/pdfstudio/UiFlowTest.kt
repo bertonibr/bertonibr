@@ -153,6 +153,47 @@ class UiFlowTest {
         rule.waitUntil(10_000) { exists("100%") }
     }
 
+    /**
+     * Pinça como num celular de verdade: o primeiro dedo encosta e já começa a
+     * arrastar (rolando a página); o segundo chega depois; os dedos se afastam.
+     */
+    private fun realisticPinch() {
+        rule.onNodeWithTag("page").performTouchInput {
+            val c = Offset(width * 0.5f, height * 0.3f)
+            down(0, c - Offset(60f, 0f))
+            moveTo(0, c - Offset(60f, 40f)) // primeiro dedo sozinho, além da tolerância de toque
+            moveTo(0, c - Offset(60f, 80f))
+            down(1, c + Offset(60f, -80f))
+            for (step in 1..12) {
+                updatePointerTo(0, c - Offset(60f + step * 20f, 80f))
+                updatePointerTo(1, c + Offset(60f + step * 20f, -80f))
+                move()
+            }
+            up(0)
+            up(1)
+        }
+    }
+
+    @Test
+    fun pinchWithFingersLandingOneAfterAnother() {
+        openSample(2)
+        waitFor("página pronta") { vm.busy == null && vm.page != null }
+        val before = vm.page!!.bitmap.width
+        realisticPinch()
+        waitFor("zoom maior após a pinça (navegar)", 15_000) { (vm.page?.bitmap?.width ?: 0) > before }
+        assertTrue(!exists("100%"))
+
+        // Também funciona com uma ferramenta de desenho ativa, sem riscar a página.
+        rule.onRoot().performTouchInput { doubleClick(center) }
+        waitFor("voltar a 100%") { exists("100%") }
+        waitFor("render em 100%", 15_000) { vm.busy == null && vm.page?.bitmap?.width == before }
+        selectTool("Desenhar")
+        realisticPinch()
+        waitFor("zoom maior após a pinça (desenhar)", 15_000) { (vm.page?.bitmap?.width ?: 0) > before }
+        rule.waitForIdle()
+        assertTrue("a pinça não pode virar desenho", vm.annotations.isEmpty())
+    }
+
     @Test
     fun annotationTools() {
         openSample(1)

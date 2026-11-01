@@ -4,24 +4,40 @@ plugins {
     id("org.jetbrains.kotlin.plugin.compose")
 }
 
+// Número da versão: no GitHub Actions vem do número da execução (-PversionCode=N).
+val ciVersionCode = (project.findProperty("versionCode") as String?)?.toIntOrNull()
+
 android {
     namespace = "com.bertonibr.pdfstudio"
     compileSdk = 35
+
+    // Chave fixa: todas as versões têm a mesma assinatura, então o Android aceita
+    // instalar uma atualização por cima da anterior (sem desinstalar).
+    signingConfigs {
+        create("app") {
+            storeFile = file("pdfstudio.keystore")
+            storePassword = "pdfstudio"
+            keyAlias = "pdfstudio"
+            keyPassword = "pdfstudio"
+        }
+    }
 
     defaultConfig {
         applicationId = "com.bertonibr.pdfstudio"
         minSdk = 26
         targetSdk = 35
-        versionCode = 2
-        versionName = "1.1"
+        versionCode = ciVersionCode ?: 2
+        versionName = "1.1." + (ciVersionCode ?: 0)
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
     buildTypes {
+        debug {
+            signingConfig = signingConfigs.getByName("app")
+        }
         release {
             isMinifyEnabled = false
-            // Assinado com a chave de debug só para facilitar a instalação manual.
-            signingConfig = signingConfigs.getByName("debug")
+            signingConfig = signingConfigs.getByName("app")
         }
     }
 
