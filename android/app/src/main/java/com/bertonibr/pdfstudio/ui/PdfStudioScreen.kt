@@ -51,6 +51,7 @@ import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.gestures.calculatePan
 import androidx.compose.runtime.snapshotFlow
+import androidx.compose.runtime.snapshots.Snapshot
 import kotlinx.coroutines.flow.distinctUntilChanged
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
@@ -676,6 +677,9 @@ private fun ToolRow(vm: PdfStudioViewModel) {
     }
 }
 
+/** Onde a tela estava quando o zoom mudou (para manter o mesmo ponto à vista). */
+private class ZoomAnchor(val first: Int, val offset: Int, val scrollX: Int, val ratio: Float, val pivot: Offset)
+
 /** Página que ocupa o meio da tela (no começo/fim do documento, a primeira/última visível). */
 private fun visiblePage(state: LazyListState): Int {
     val info = state.layoutInfo
@@ -705,6 +709,9 @@ private fun PdfViewer(
     // Escala visual durante a pinça; ao soltar os dedos vira zoom de verdade (re-renderiza nítido).
     var pinch by remember { mutableFloatStateOf(1f) }
     var pivot by remember { mutableStateOf(Offset.Zero) }
+    // Ponto da tela que deve ficar parado quando o zoom mudar (dedos, toque duplo ou centro da tela).
+    var zoomPivot by remember { mutableStateOf<Offset?>(null) }
+    val previousZoom = remember { floatArrayOf(zoom) }
     val navigate = vm.tool == Tool.NAVIGATE
 
     // Página atual = a que está no meio da tela.
@@ -734,6 +741,35 @@ private fun PdfViewer(
         val marginPx = with(density) { 12.dp.toPx() }
         val pageWidthPx = ((constraints.maxWidth - 2 * marginPx) * zoom).roundToInt().coerceAtLeast(64)
         val contentWidthPx = pageWidthPx + 2 * marginPx
+        val viewportCenter = Offset(constraints.maxWidth / 2f, constraints.maxHeight / 2f)
+
+        // Quando o zoom muda, guarda (antes do novo layout) onde a tela estava...
+        val anchor = if (previousZoom[0] != zoom) {
+            val ratio = zoom / previousZoom[0]
+            previousZoom[0] = zoom
+            Snapshot.withoutReadObservation {
+                ZoomAnchor(
+                    listState.firstVisibleItemIndex, listState.firstVisibleItemScrollOffset,
+                    hScroll.value, ratio, zoomPivot ?: viewportCenter,
+                )
+            }
+        } else {
+            null
+        }
+        // ...e depois rola para que esse ponto continue no mesmo lugar da tela.
+        LaunchedEffect(zoom) {
+            val a = anchor ?: return@LaunchedEffect
+            zoomPivot = null
+            listState.scrollToItem(a.first, ((a.offset + a.pivot.y) * a.ratio - a.pivot.y).roundToInt().coerceAtLeast(0))
+            hScroll.scrollTo(((a.scrollX + a.pivot.x) * a.ratio - a.pivot.x).roundToInt().coerceAtLeast(0))
+        }
+
+        /** Toque duplo numa página: alterna o zoom centrado no ponto tocado. */
+        val onDoubleTapAt: (Int, Offset) -> Unit = { index, local ->
+            val item = listState.layoutInfo.visibleItemsInfo.firstOrNull { it.index == index }
+            if (item != null) zoomPivot = Offset(marginPx + local.x - hScroll.value, item.offset + local.y)
+            onZoom(if (zoom > 1.01f) 1f else 2f)
+        }
 
         Box(
             Modifier.fillMaxSize()
@@ -758,21 +794,11 @@ private fun PdfViewer(
                         } while (event.changes.any { it.pressed })
                         if (pinching) {
                             val newZoom = (zoom * pinch).coerceIn(MIN_ZOOM, MAX_ZOOM)
-                            val ratio = newZoom / zoom
-                            val first = listState.firstVisibleItemIndex
-                            val offset = listState.firstVisibleItemScrollOffset
-                            val sx = hScroll.value
-                            val p = pivot
                             pinch = 1f
-                            if (ratio != 1f) {
-                                onZoom(newZoom)
+                            if (newZoom != zoom) {
                                 // Mantém sob os dedos o ponto onde a pinça começou.
-                                scope.launch {
-                                    withFrameNanos { }
-                                    withFrameNanos { }
-                                    listState.scrollToItem(first, ((offset + p.y) * ratio - p.y).roundToInt().coerceAtLeast(0))
-                                    hScroll.scrollTo(((sx + p.x) * ratio - p.x).roundToInt().coerceAtLeast(0))
-                                }
+                                zoomPivot = pivot
+                                onZoom(newZoom)
                             }
                         }
                     }
@@ -799,7 +825,7 @@ private fun PdfViewer(
                 horizontalAlignment = Alignment.CenterHorizontally,
             ) {
                 items(vm.pageCount, key = { "${vm.docVersion}-$it" }) { index ->
-                    PageItem(vm, index, pageWidthPx, zoom, onZoom, onTextAt, onSignAt, onEditArea)
+                    PageItem(vm, index, pageWidthPx, zoom, onDoubleTapAt, onTextAt, onSignAt, onEditArea)
                 }
             }
         }
@@ -813,7 +839,7 @@ private fun PageItem(
     index: Int,
     pageWidthPx: Int,
     zoom: Float,
-    onZoom: (Float) -> Unit,
+    onDoubleTapAt: (Int, Offset) -> Unit,
     onTextAt: (Int, Float, Float) -> Unit,
     onSignAt: (Int, Float, Float) -> Unit,
     onEditArea: (Int, Float, Float, Float, Float) -> Unit,
@@ -832,7 +858,7 @@ private fun PageItem(
             .background(Color.White),
     ) {
         if (img != null) Image(img.bitmap, null, Modifier.fillMaxSize(), contentScale = ContentScale.FillBounds)
-        AnnotationLayer(vm, index, k, zoom, onZoom, onTextAt, onSignAt, onEditArea)
+        AnnotationLayer(vm, index, k, zoom, { local -> onDoubleTapAt(index, local) }, onTextAt, onSignAt, onEditArea)
         if (vm.tool == Tool.NAVIGATE && vm.selectionPage == index) SelectionHandles(vm, k)
     }
 }
@@ -843,7 +869,7 @@ private fun AnnotationLayer(
     index: Int,
     k: Float,
     zoom: Float,
-    onZoom: (Float) -> Unit,
+    onDoubleTap: (Offset) -> Unit,
     onTextAt: (Int, Float, Float) -> Unit,
     onSignAt: (Int, Float, Float) -> Unit,
     onEditArea: (Int, Float, Float, Float, Float) -> Unit,
@@ -859,7 +885,7 @@ private fun AnnotationLayer(
         Modifier.fillMaxSize().pointerInput(tool, k, zoom) {
             when (tool) {
                 Tool.NAVIGATE -> detectTapGestures(
-                    onDoubleTap = { onZoom(if (zoom > 1.01f) 1f else 2f) },
+                    onDoubleTap = { onDoubleTap(it) },
                     onLongPress = {
                         haptics.performHapticFeedback(HapticFeedbackType.LongPress)
                         vm.selectWordAt(index, it.x / k, it.y / k)

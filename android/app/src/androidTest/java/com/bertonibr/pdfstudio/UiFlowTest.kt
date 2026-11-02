@@ -208,7 +208,7 @@ class UiFlowTest {
      * arrastar (rolando a página); o segundo chega depois; os dedos se afastam.
      */
     private fun realisticPinch() {
-        rule.onNodeWithTag("page-0").performTouchInput {
+        rule.onNodeWithTag("viewer").performTouchInput {
             val c = Offset(width * 0.5f, height * 0.3f)
             down(0, c - Offset(60f, 0f))
             moveTo(0, c - Offset(60f, 40f)) // primeiro dedo sozinho, além da tolerância de toque
