@@ -33,6 +33,8 @@ import androidx.compose.ui.test.performTextReplacement
 import androidx.compose.ui.test.performTouchInput
 import androidx.compose.ui.test.pinch
 import androidx.compose.ui.test.swipe
+import androidx.compose.ui.test.swipeDown
+import androidx.compose.ui.test.swipeUp
 import androidx.lifecycle.ViewModelProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.bertonibr.pdfstudio.model.Annotation
@@ -89,7 +91,7 @@ class UiFlowTest {
     }
 
     private fun swipeOnPage(fromX: Float = 0.2f, fromY: Float = 0.25f, toX: Float = 0.6f, toY: Float = 0.32f) {
-        rule.onNodeWithTag("page").performTouchInput {
+        rule.onNodeWithTag("page-0").performTouchInput {
             swipe(Offset(width * fromX, height * fromY), Offset(width * toX, height * toY), durationMillis = 300)
         }
         rule.waitForIdle()
@@ -129,6 +131,42 @@ class UiFlowTest {
     }
 
     @Test
+    fun continuousScrollThroughPages() {
+        openSample(4)
+        rule.onNodeWithText("1 / 4").assertIsDisplayed()
+        // Arrastar para cima várias vezes passa pelas páginas seguintes.
+        repeat(3) {
+            rule.onNodeWithTag("viewer").performTouchInput {
+                swipeUp(startY = height * 0.85f, endY = height * 0.15f, durationMillis = 250)
+            }
+        }
+        waitFor("rolar para a página 2 ou mais", 15_000) { vm.current >= 1 }
+        waitFor("página visível renderizada", 15_000) { vm.pageBitmaps.containsKey(vm.current) }
+        waitFor("indicador acompanha a rolagem") { exists("${vm.current + 1} / 4") }
+
+        // Até o fim do documento: última página.
+        repeat(8) {
+            rule.onNodeWithTag("viewer").performTouchInput {
+                swipeUp(startY = height * 0.85f, endY = height * 0.15f, durationMillis = 200)
+            }
+        }
+        waitFor("chegar à última página", 15_000) { vm.current == 3 }
+        waitFor("indicador 4 / 4") { exists("4 / 4") }
+
+        // E de volta para cima.
+        repeat(10) {
+            rule.onNodeWithTag("viewer").performTouchInput {
+                swipeDown(startY = height * 0.15f, endY = height * 0.85f, durationMillis = 200)
+            }
+        }
+        waitFor("voltar à primeira página", 15_000) { vm.current == 0 }
+
+        // A seta "próxima" rola até a página seguinte.
+        rule.onNodeWithContentDescription("Próxima").performClick()
+        waitFor("seta leva à página 2") { vm.current == 1 && exists("2 / 4") }
+    }
+
+    @Test
     fun navigationZoomAndPinch() {
         openSample()
         rule.onNodeWithText("teste.pdf").assertIsDisplayed()
@@ -150,7 +188,7 @@ class UiFlowTest {
         // Pinça com dois dedos amplia a página.
         rule.waitUntil(10_000) { vm.busy == null && vm.page != null }
         val before = vm.page!!.bitmap.width
-        rule.onNodeWithTag("page").performTouchInput {
+        rule.onNodeWithTag("page-0").performTouchInput {
             pinch(
                 start0 = center - Offset(40f, 0f), end0 = center - Offset(260f, 0f),
                 start1 = center + Offset(40f, 0f), end1 = center + Offset(260f, 0f),
@@ -170,7 +208,7 @@ class UiFlowTest {
      * arrastar (rolando a página); o segundo chega depois; os dedos se afastam.
      */
     private fun realisticPinch() {
-        rule.onNodeWithTag("page").performTouchInput {
+        rule.onNodeWithTag("page-0").performTouchInput {
             val c = Offset(width * 0.5f, height * 0.3f)
             down(0, c - Offset(60f, 0f))
             moveTo(0, c - Offset(60f, 40f)) // primeiro dedo sozinho, além da tolerância de toque
@@ -211,13 +249,13 @@ class UiFlowTest {
 
     private fun longPressOnFirstWord(k: Float) {
         // "Pagina" fica em x ≈ 72..116 pt, com a base da linha em y = 142 pt.
-        rule.onNodeWithTag("page").performTouchInput { longClick(Offset(76f * k, 137f * k)) }
+        rule.onNodeWithTag("page-0").performTouchInput { longClick(Offset(76f * k, 137f * k)) }
     }
 
     @Test
     fun longPressSelectsAndCopiesText() {
         openSample(1)
-        val k = rule.onNodeWithTag("page").fetchSemanticsNode().size.width / 595f
+        val k = rule.onNodeWithTag("page-0").fetchSemanticsNode().size.width / 595f
 
         longPressOnFirstWord(k)
         waitFor("palavra selecionada") { vm.selection != null }
@@ -250,14 +288,14 @@ class UiFlowTest {
     @Test
     fun tapClearsSelectionAndBlankLongPressSelectsNothing() {
         openSample(1)
-        val k = rule.onNodeWithTag("page").fetchSemanticsNode().size.width / 595f
+        val k = rule.onNodeWithTag("page-0").fetchSemanticsNode().size.width / 595f
 
         longPressOnFirstWord(k)
         waitFor("palavra selecionada") { vm.selection != null }
-        rule.onNodeWithTag("page").performTouchInput { click(Offset(300f * k, 600f * k)) }
+        rule.onNodeWithTag("page-0").performTouchInput { click(Offset(300f * k, 600f * k)) }
         waitFor("seleção fechada com toque") { vm.selection == null }
 
-        rule.onNodeWithTag("page").performTouchInput { longClick(Offset(300f * k, 600f * k)) }
+        rule.onNodeWithTag("page-0").performTouchInput { longClick(Offset(300f * k, 600f * k)) }
         val notice = "Nenhum texto neste ponto."
         waitFor("aviso de nenhum texto") { vm.message == notice || exists(notice) }
         assertTrue(vm.selection == null)
@@ -268,7 +306,7 @@ class UiFlowTest {
         openSample(1)
 
         selectTool("Texto")
-        rule.onNodeWithTag("page").performTouchInput { click(Offset(width * 0.2f, height * 0.5f)) }
+        rule.onNodeWithTag("page-0").performTouchInput { click(Offset(width * 0.2f, height * 0.5f)) }
         rule.waitUntil(5_000) { exists("Inserir texto") }
         rule.onNode(hasSetTextAction()).performTextInput("Teste de UI")
         rule.onNodeWithText("OK").performClick()
@@ -298,7 +336,7 @@ class UiFlowTest {
 
         // Editar texto: arrastar sobre "Pagina 1 conteudo original" (base em y = 142 pt).
         selectTool("Editar texto")
-        rule.onNodeWithTag("page").performTouchInput {
+        rule.onNodeWithTag("page-0").performTouchInput {
             val k = width / 595f
             swipe(Offset(40f * k, 112f * k), Offset(330f * k, 160f * k), durationMillis = 300)
         }
@@ -312,7 +350,7 @@ class UiFlowTest {
 
         // Assinatura: desenhar no quadro e posicionar na página.
         selectTool("Assinar")
-        rule.onNodeWithTag("page").performTouchInput { click(Offset(width * 0.5f, height * 0.4f)) }
+        rule.onNodeWithTag("page-0").performTouchInput { click(Offset(width * 0.5f, height * 0.4f)) }
         rule.waitUntil(5_000) { exists("Assinatura") }
         rule.onNodeWithTag("signaturePad").performTouchInput {
             swipe(Offset(30f, 40f), Offset(width - 30f, height - 40f), durationMillis = 300)

@@ -49,7 +49,14 @@ enum class Tool(val label: String) {
     SIGN("Assinar"),
 }
 
-class PageImage(val bitmap: ImageBitmap, val index: Int, val widthPt: Float, val heightPt: Float)
+class PageImage(
+    val bitmap: ImageBitmap,
+    val index: Int,
+    val widthPt: Float,
+    val heightPt: Float,
+    val renderWidth: Int = 0,
+    val version: Int = 0,
+)
 
 class PdfStudioViewModel(app: Application) : AndroidViewModel(app) {
 
@@ -66,9 +73,21 @@ class PdfStudioViewModel(app: Application) : AndroidViewModel(app) {
     var docUri by mutableStateOf<Uri?>(null); private set
     var dirty by mutableStateOf(false); private set
     var pageCount by mutableIntStateOf(0); private set
+    /** Página "atual": a que está no meio da tela (atualizada enquanto se rola). */
     var current by mutableIntStateOf(0); private set
-    var page by mutableStateOf<PageImage?>(null); private set
-    var annotations by mutableStateOf<List<Annotation>>(emptyList()); private set
+
+    /** Tamanho (pt) de cada página, imagens já renderizadas e anotações por página. */
+    var pageSizes by mutableStateOf<List<FloatArray>>(emptyList()); private set
+    val pageBitmaps = mutableStateMapOf<Int, PageImage>()
+    val annotationsByPage = mutableStateMapOf<Int, List<Annotation>>()
+
+    /** Pedido para a tela rolar até uma página (setas, busca, painel de páginas). */
+    var scrollRequest by mutableStateOf<Int?>(null)
+
+    /** Imagem e anotações da página atual. */
+    val page: PageImage? get() = pageBitmaps[current]
+    val annotations: List<Annotation> get() = annotationsByPage[current] ?: emptyList()
+    private var lastEditedPage = 0
     var busy by mutableStateOf<String?>(null); private set
     var message by mutableStateOf<String?>(null)
     var docVersion by mutableIntStateOf(0); private set
@@ -87,6 +106,7 @@ class PdfStudioViewModel(app: Application) : AndroidViewModel(app) {
     /** Texto da página atual (com posições) e seleção feita segurando o dedo. */
     var pageGlyphs by mutableStateOf<List<Glyph>>(emptyList()); private set
     var selection by mutableStateOf<IntRange?>(null); private set
+    var selectionPage by mutableIntStateOf(0); private set
     private var glyphCache: Triple<Int, Int, List<Glyph>>? = null // (versão, página, glifos) — só na thread do PDF
 
     /** PDF que pediu senha (a tela mostra o diálogo de senha). */
@@ -94,8 +114,6 @@ class PdfStudioViewModel(app: Application) : AndroidViewModel(app) {
 
     /** Só para testes automáticos: aponta o Claude para um servidor simulado. */
     var claudeBaseUrl: String? = null
-
-    private var lastRenderWidth = 0
 
     private val speech = Speech(app) { s -> viewModelScope.launch { speaking = s } }
 
@@ -178,8 +196,10 @@ class PdfStudioViewModel(app: Application) : AndroidViewModel(app) {
             docUri = uri
             selection = null
             current = 0
+            lastEditedPage = 0
             aiText = ""
             tool = Tool.NAVIGATE
+            scrollRequest = 0
         }
         structureChanged()
     }
@@ -192,8 +212,9 @@ class PdfStudioViewModel(app: Application) : AndroidViewModel(app) {
             selection = null
             docName = "PDF Studio"
             docUri = null
-            page = null
-            annotations = emptyList()
+            pageBitmaps.clear()
+            annotationsByPage.clear()
+            pageSizes = emptyList()
             pageCount = 0
             dirty = false
             thumbnails.clear()
@@ -204,15 +225,18 @@ class PdfStudioViewModel(app: Application) : AndroidViewModel(app) {
     private suspend fun structureChanged() {
         val e = editor ?: return
         val n = e.pageCount
+        val sizes = e.pageSizes()
         ui {
             selection = null
             pageCount = n
+            pageSizes = sizes
             current = current.coerceIn(0, n - 1)
             dirty = e.dirty
             docVersion++
             thumbnails.clear()
+            pageBitmaps.clear()
+            annotationsByPage.clear()
         }
-        renderCurrent()
     }
 
     fun saveTo(uri: Uri, rememberAsCurrent: Boolean = true) = run("Salvando...") {
@@ -255,32 +279,51 @@ class PdfStudioViewModel(app: Application) : AndroidViewModel(app) {
 
     // ------------------------------------------------------------ navegação e renderização
 
+    /** Rola até a página (setas, busca, painel de páginas). */
     fun goTo(index: Int) {
-        if (!hasDocument || index !in 0 until pageCount || index == current) return
-        selection = null
+        if (!hasDocument || index !in 0 until pageCount) return
         current = index
-        run(null) { renderCurrent() }
+        scrollRequest = index
     }
 
-    fun requestRender(widthPx: Int) {
-        if (!hasDocument || widthPx <= 0) return
-        if (widthPx == lastRenderWidth && page?.index == current) return
-        lastRenderWidth = widthPx
-        run(null) { renderCurrent() }
+    /** A tela avisa qual página está visível enquanto o usuário rola. */
+    fun onVisiblePage(index: Int) {
+        if (hasDocument && index in 0 until pageCount) current = index
     }
 
-    private suspend fun renderCurrent() {
-        val e = editor ?: return
-        val idx = current.coerceIn(0, e.pageCount - 1)
-        val w = if (lastRenderWidth > 0) lastRenderWidth else 1080
-        val r = e.render(idx, w)
-        val list = e.annotations(idx)
-        ui {
-            if (idx == current) {
-                page = PageImage(r.bitmap.asImageBitmap(), idx, r.widthPt, r.heightPt)
-                annotations = list
+    /**
+     * Renderiza uma página com a largura pedida (chamada pela própria página
+     * quando aparece na tela; se ela sair da tela antes, o pedido é cancelado).
+     */
+    suspend fun renderPage(index: Int, widthPx: Int) {
+        val have = pageBitmaps[index]
+        if (have != null && have.renderWidth == widthPx && have.version == docVersion) return
+        val version = docVersion
+        try {
+            val r = withContext(pdf) {
+                val e = editor ?: return@withContext null
+                if (version != docVersion || index >= e.pageCount) null else e.render(index, widthPx)
+            } ?: return
+            if (version == docVersion) {
+                pageBitmaps[index] = PageImage(r.bitmap.asImageBitmap(), index, r.widthPt, r.heightPt, widthPx, version)
             }
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
+        } catch (e: Throwable) {
+            message = "Erro ao mostrar a página ${index + 1}: ${e.message ?: e.javaClass.simpleName}"
         }
+    }
+
+    /** Libera da memória as imagens das páginas longe da tela. */
+    fun trimPages(keep: IntRange) {
+        pageBitmaps.keys.filter { it !in keep }.forEach { pageBitmaps.remove(it) }
+    }
+
+    /** Carrega as anotações (ainda não gravadas) de uma página. */
+    suspend fun loadAnnotations(index: Int) {
+        val version = docVersion
+        val list = withContext(pdf) { editor?.takeIf { index < it.pageCount }?.annotations(index) } ?: return
+        if (version == docVersion) annotationsByPage[index] = list
     }
 
     fun requestThumbnail(index: Int) {
@@ -325,8 +368,11 @@ class PdfStudioViewModel(app: Application) : AndroidViewModel(app) {
         if (to !in 0 until pageCount) return
         run(null) {
             editor?.movePage(from, to)
-            ui { if (current == from) current = to }
             structureChanged()
+            ui {
+                current = to
+                scrollRequest = to
+            }
         }
     }
 
@@ -386,41 +432,44 @@ class PdfStudioViewModel(app: Application) : AndroidViewModel(app) {
 
     // ------------------------------------------------------------ anotações
 
-    private fun refreshAnnotations() {
-        val idx = current
+    private fun refreshAnnotations(index: Int) {
+        val version = docVersion
         run(null) {
-            val list = editor?.annotations(idx) ?: emptyList()
+            val list = editor?.annotations(index) ?: emptyList()
             val d = editor?.dirty ?: false
             ui {
-                if (idx == current) annotations = list
+                if (version == docVersion) annotationsByPage[index] = list
                 dirty = d
             }
         }
     }
 
-    fun addAnnotation(a: Annotation) {
-        val idx = current
-        run(null) { editor?.addAnnotation(idx, a) }
-        refreshAnnotations()
+    fun addAnnotation(a: Annotation) = addAnnotation(current, a)
+
+    fun addAnnotation(index: Int, a: Annotation) {
+        lastEditedPage = index
+        run(null) { editor?.addAnnotation(index, a) }
+        refreshAnnotations(index)
     }
 
+    /** Desfaz a última anotação da página editada por último. */
     fun undo() {
-        val idx = current
+        val idx = lastEditedPage.coerceIn(0, max(0, pageCount - 1))
         run(null) {
-            if (editor?.undoAnnotation(idx) != true) ui { message = "Nada para desfazer nesta página." }
+            if (editor?.undoAnnotation(idx) != true) ui { message = "Nada para desfazer." }
         }
-        refreshAnnotations()
+        refreshAnnotations(idx)
     }
 
     fun clearPageAnnotations() {
         val idx = current
         run(null) { editor?.clearAnnotations(idx) }
-        refreshAnnotations()
+        refreshAnnotations(idx)
     }
 
     /** Ferramenta "Editar texto": lê o texto da área e chama [onText] com ele. */
-    fun textInArea(x: Float, y: Float, w: Float, h: Float, onText: (String) -> Unit) {
-        val idx = current
+    fun textInArea(index: Int, x: Float, y: Float, w: Float, h: Float, onText: (String) -> Unit) {
+        val idx = index
         run("Lendo texto da área...") {
             val t = editor?.textInArea(idx, x, y, w, h) ?: ""
             ui { onText(t) }
@@ -451,19 +500,19 @@ class PdfStudioViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     /** Segurar o dedo: seleciona a palavra sob o ponto (coordenadas em pontos). */
-    fun selectWordAt(x: Float, y: Float) {
-        val index = current
+    fun selectWordAt(index: Int, x: Float, y: Float) {
         val version = docVersion
         run(null) {
             val glyphs = glyphsFor(index, version)
             val i = TextLayout.nearest(glyphs, x, y, maxDistance = 24f)
             ui {
-                if (index != current) return@ui
+                if (version != docVersion) return@ui
                 if (i == null) {
                     message = if (glyphs.isEmpty()) "Esta página não tem texto selecionável (pode ser uma imagem digitalizada)."
                     else "Nenhum texto neste ponto."
                 } else {
                     pageGlyphs = glyphs
+                    selectionPage = index
                     selection = TextLayout.wordAt(glyphs, i)
                 }
             }
@@ -496,7 +545,7 @@ class PdfStudioViewModel(app: Application) : AndroidViewModel(app) {
     fun highlightSelection() {
         val sel = selection ?: return
         TextLayout.lineRects(pageGlyphs, sel).forEach { r ->
-            addAnnotation(Annotation.Highlight(r[0], r[1], r[2] - r[0], r[3] - r[1], Color.parseColor("#FFEB3B")))
+            addAnnotation(selectionPage, Annotation.Highlight(r[0], r[1], r[2] - r[0], r[3] - r[1], Color.parseColor("#FFEB3B")))
         }
         selection = null
     }

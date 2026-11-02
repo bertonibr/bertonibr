@@ -45,7 +45,13 @@ import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.gestures.calculatePan
+import androidx.compose.runtime.snapshotFlow
+import kotlinx.coroutines.flow.distinctUntilChanged
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.itemsIndexed
@@ -140,6 +146,7 @@ import com.bertonibr.pdfstudio.model.Annotation
 import com.bertonibr.pdfstudio.service.ClaudeService
 import java.util.IdentityHashMap
 import kotlin.math.abs
+import kotlin.math.max
 import kotlin.math.min
 import android.graphics.Color as AColor
 
@@ -179,7 +186,7 @@ fun PdfStudioScreen(vm: PdfStudioViewModel) {
     var showAssistant by remember { mutableStateOf(false) }
     var showApiKey by remember { mutableStateOf(false) }
     var showSignature by remember { mutableStateOf(false) }
-    var pendingSignaturePoint by remember { mutableStateOf<Offset?>(null) }
+    var pendingSignature by remember { mutableStateOf<Triple<Int, Float, Float>?>(null) }
     var textRequest by remember { mutableStateOf<TextRequest?>(null) }
     var confirmDiscard by remember { mutableStateOf<(() -> Unit)?>(null) }
     var confirmDelete by remember { mutableStateOf<Int?>(null) }
@@ -359,35 +366,35 @@ fun PdfStudioScreen(vm: PdfStudioViewModel) {
                     onImages = { newFromImages.launch("image/*") },
                 )
             } else {
-                PageView(
+                PdfViewer(
                     vm = vm,
                     zoom = zoom,
                     onZoom = { zoom = it },
-                    onTextAt = { x, y ->
+                    onTextAt = { page, x, y ->
                         textRequest = TextRequest("Inserir texto", "Texto") {
-                            if (it.isNotBlank()) vm.addAnnotation(Annotation.Text(x, y, it, vm.textSize, vm.color))
+                            if (it.isNotBlank()) vm.addAnnotation(page, Annotation.Text(x, y, it, vm.textSize, vm.color))
                         }
                     },
-                    onSignAt = { x, y ->
+                    onSignAt = { page, x, y ->
                         val png = vm.signaturePng
                         if (png == null) {
-                            pendingSignaturePoint = Offset(x, y)
+                            pendingSignature = Triple(page, x, y)
                             showSignature = true
                         } else {
-                            placeSignature(vm, png, x, y)
+                            placeSignature(vm, page, png, x, y)
                         }
                     },
-                    onEditArea = { x, y, w, h ->
-                        vm.textInArea(x, y, w, h) { original ->
+                    onEditArea = { page, x, y, w, h ->
+                        vm.textInArea(page, x, y, w, h) { original ->
                             textRequest = TextRequest(
                                 "Editar texto",
                                 if (original.isEmpty()) "Nenhum texto na área. Novo texto:" else "Novo texto",
                                 original,
                             ) { newText ->
-                                vm.addAnnotation(Annotation.Whiteout(x, y, w, h, AColor.WHITE))
+                                vm.addAnnotation(page, Annotation.Whiteout(x, y, w, h, AColor.WHITE))
                                 if (newText.isNotBlank()) {
                                     val c = if (vm.color == PALETTE[0]) AColor.BLACK else vm.color
-                                    vm.addAnnotation(Annotation.Text(x, y, newText, vm.textSize, c))
+                                    vm.addAnnotation(page, Annotation.Text(x, y, newText, vm.textSize, c))
                                 }
                             }
                         }
@@ -478,12 +485,12 @@ fun PdfStudioScreen(vm: PdfStudioViewModel) {
     if (showSignature) {
         SignatureDialog(onDismiss = {
             showSignature = false
-            pendingSignaturePoint = null
+            pendingSignature = null
         }) { png ->
             vm.signaturePng = png
             showSignature = false
-            pendingSignaturePoint?.let { placeSignature(vm, png, it.x, it.y) }
-            pendingSignaturePoint = null
+            pendingSignature?.let { (page, x, y) -> placeSignature(vm, page, png, x, y) }
+            pendingSignature = null
             vm.tool = Tool.SIGN
         }
     }
@@ -563,12 +570,12 @@ private fun MenuEntry(text: String, enabled: Boolean, close: () -> Unit, action:
     })
 }
 
-private fun placeSignature(vm: PdfStudioViewModel, png: ByteArray, x: Float, y: Float) {
+private fun placeSignature(vm: PdfStudioViewModel, page: Int, png: ByteArray, x: Float, y: Float) {
     val opts = BitmapFactory.Options().apply { inJustDecodeBounds = true }
     BitmapFactory.decodeByteArray(png, 0, png.size, opts)
     val w = 150f
     val h = w * opts.outHeight / opts.outWidth.coerceAtLeast(1)
-    vm.addAnnotation(Annotation.Image(png, x - w / 2, y - h / 2, w, h))
+    vm.addAnnotation(page, Annotation.Image(png, x - w / 2, y - h / 2, w, h))
 }
 
 private fun Context.takePermission(uri: Uri) {
@@ -669,36 +676,68 @@ private fun ToolRow(vm: PdfStudioViewModel) {
     }
 }
 
+/** Página que ocupa o meio da tela (no começo/fim do documento, a primeira/última visível). */
+private fun visiblePage(state: LazyListState): Int {
+    val info = state.layoutInfo
+    val items = info.visibleItemsInfo
+    if (items.isEmpty()) return state.firstVisibleItemIndex
+    if (!state.canScrollForward) return items.last().index
+    if (!state.canScrollBackward) return items.first().index
+    val center = (info.viewportStartOffset + info.viewportEndOffset) / 2
+    val hit = items.firstOrNull { it.offset <= center && center < it.offset + it.size }
+    return (hit ?: items.minBy { abs(it.offset + it.size / 2 - center) }).index
+}
+
+/** Todas as páginas em sequência: rolagem contínua, zoom e pinça. */
 @Composable
-private fun PageView(
+private fun PdfViewer(
     vm: PdfStudioViewModel,
     zoom: Float,
     onZoom: (Float) -> Unit,
-    onTextAt: (Float, Float) -> Unit,
-    onSignAt: (Float, Float) -> Unit,
-    onEditArea: (Float, Float, Float, Float) -> Unit,
+    onTextAt: (Int, Float, Float) -> Unit,
+    onSignAt: (Int, Float, Float) -> Unit,
+    onEditArea: (Int, Float, Float, Float, Float) -> Unit,
 ) {
     val density = LocalDensity.current
-    val vScroll = rememberScrollState()
+    val listState = rememberLazyListState()
     val hScroll = rememberScrollState()
     val scope = rememberCoroutineScope()
     // Escala visual durante a pinça; ao soltar os dedos vira zoom de verdade (re-renderiza nítido).
     var pinch by remember { mutableFloatStateOf(1f) }
     var pivot by remember { mutableStateOf(Offset.Zero) }
+    val navigate = vm.tool == Tool.NAVIGATE
+
+    // Página atual = a que está no meio da tela.
+    LaunchedEffect(listState) {
+        snapshotFlow { visiblePage(listState) }.distinctUntilChanged().collect { vm.onVisiblePage(it) }
+    }
+    // Setas, busca e painel de páginas pedem para rolar até uma página.
+    LaunchedEffect(vm.scrollRequest) {
+        val target = vm.scrollRequest ?: return@LaunchedEffect
+        withFrameNanos { }
+        listState.scrollToItem(target.coerceIn(0, max(0, vm.pageCount - 1)))
+        vm.scrollRequest = null
+    }
+    // Só mantém na memória as imagens das páginas perto da tela.
+    LaunchedEffect(listState, zoom) {
+        snapshotFlow { listState.layoutInfo.visibleItemsInfo.map { it.index } }
+            .distinctUntilChanged()
+            .collect { visible ->
+                if (visible.isNotEmpty()) {
+                    val extra = if (zoom > 1.5f) 1 else 2
+                    vm.trimPages((visible.first() - extra)..(visible.last() + extra))
+                }
+            }
+    }
 
     BoxWithConstraints(Modifier.fillMaxSize()) {
         val marginPx = with(density) { 12.dp.toPx() }
-        val renderWidth = ((constraints.maxWidth - 2 * marginPx) * zoom).toInt().coerceAtLeast(64)
-        LaunchedEffect(renderWidth, vm.current, vm.docVersion) { vm.requestRender(renderWidth) }
-
-        val page = vm.page ?: return@BoxWithConstraints
-        val k = renderWidth / page.widthPt // pixels por ponto
-        val heightPx = page.heightPt * k
-        val navigate = vm.tool == Tool.NAVIGATE
+        val pageWidthPx = ((constraints.maxWidth - 2 * marginPx) * zoom).roundToInt().coerceAtLeast(64)
+        val contentWidthPx = pageWidthPx + 2 * marginPx
 
         Box(
             Modifier.fillMaxSize()
-                // Pinça com dois dedos (funciona em qualquer ferramenta). Um dedo continua rolando/desenhando.
+                // Dois dedos: zoom (pinça) e rolagem, em qualquer ferramenta. Um dedo rola ou desenha.
                 .pointerInput(zoom) {
                     awaitEachGesture {
                         awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Initial)
@@ -711,63 +750,103 @@ private fun PageView(
                                     pivot = event.calculateCentroid(useCurrent = true)
                                 }
                                 pinch = (pinch * event.calculateZoom()).coerceIn(MIN_ZOOM / zoom, MAX_ZOOM / zoom)
+                                val pan = event.calculatePan()
+                                listState.dispatchRawDelta(-pan.y / pinch)
+                                hScroll.dispatchRawDelta(-pan.x / pinch)
                                 event.changes.forEach { it.consume() }
                             }
                         } while (event.changes.any { it.pressed })
                         if (pinching) {
                             val newZoom = (zoom * pinch).coerceIn(MIN_ZOOM, MAX_ZOOM)
                             val ratio = newZoom / zoom
+                            val first = listState.firstVisibleItemIndex
+                            val offset = listState.firstVisibleItemScrollOffset
                             val sx = hScroll.value
-                            val sy = vScroll.value
                             val p = pivot
                             pinch = 1f
-                            onZoom(newZoom)
-                            // Mantém sob os dedos o ponto onde a pinça começou.
-                            scope.launch {
-                                withFrameNanos { }
-                                withFrameNanos { }
-                                hScroll.scrollTo(((sx + p.x) * ratio - p.x).toInt().coerceAtLeast(0))
-                                vScroll.scrollTo(((sy + p.y) * ratio - p.y).toInt().coerceAtLeast(0))
+                            if (ratio != 1f) {
+                                onZoom(newZoom)
+                                // Mantém sob os dedos o ponto onde a pinça começou.
+                                scope.launch {
+                                    withFrameNanos { }
+                                    withFrameNanos { }
+                                    listState.scrollToItem(first, ((offset + p.y) * ratio - p.y).roundToInt().coerceAtLeast(0))
+                                    hScroll.scrollTo(((sx + p.x) * ratio - p.x).roundToInt().coerceAtLeast(0))
+                                }
                             }
                         }
                     }
                 }
-                .verticalScroll(vScroll, enabled = navigate)
+                .graphicsLayer {
+                    scaleX = pinch
+                    scaleY = pinch
+                    transformOrigin = TransformOrigin(
+                        (pivot.x / size.width.coerceAtLeast(1f)).coerceIn(0f, 1f),
+                        (pivot.y / size.height.coerceAtLeast(1f)).coerceIn(0f, 1f),
+                    )
+                }
                 .horizontalScroll(hScroll, enabled = navigate),
         ) {
-            Box(
-                Modifier.padding(12.dp)
-                    .testTag("page")
-                    .size(with(density) { renderWidth.toDp() }, with(density) { heightPx.toDp() })
-                    .graphicsLayer {
-                        scaleX = pinch
-                        scaleY = pinch
-                        val w = size.width.coerceAtLeast(1f)
-                        val h = size.height.coerceAtLeast(1f)
-                        transformOrigin = TransformOrigin(
-                            ((hScroll.value + pivot.x - marginPx) / w).coerceIn(0f, 1f),
-                            ((vScroll.value + pivot.y - marginPx) / h).coerceIn(0f, 1f),
-                        )
-                    }
-                    .background(Color.White),
+            LazyColumn(
+                state = listState,
+                userScrollEnabled = navigate,
+                modifier = Modifier
+                    .width(with(density) { contentWidthPx.toDp() })
+                    .fillMaxHeight()
+                    .testTag("viewer"),
+                contentPadding = PaddingValues(vertical = 12.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
             ) {
-                Image(page.bitmap, null, Modifier.fillMaxSize(), contentScale = ContentScale.FillBounds)
-                AnnotationLayer(vm, k, zoom, onZoom, onTextAt, onSignAt, onEditArea)
-                if (navigate) SelectionHandles(vm, k)
+                items(vm.pageCount, key = { "${vm.docVersion}-$it" }) { index ->
+                    PageItem(vm, index, pageWidthPx, zoom, onZoom, onTextAt, onSignAt, onEditArea)
+                }
             }
         }
+    }
+}
+
+/** Uma página: imagem (carregada quando aparece na tela) + anotações + seleção. */
+@Composable
+private fun PageItem(
+    vm: PdfStudioViewModel,
+    index: Int,
+    pageWidthPx: Int,
+    zoom: Float,
+    onZoom: (Float) -> Unit,
+    onTextAt: (Int, Float, Float) -> Unit,
+    onSignAt: (Int, Float, Float) -> Unit,
+    onEditArea: (Int, Float, Float, Float, Float) -> Unit,
+) {
+    val density = LocalDensity.current
+    val sizePt = vm.pageSizes.getOrNull(index) ?: floatArrayOf(595f, 842f)
+    val k = pageWidthPx / sizePt[0] // pixels por ponto
+    val heightPx = sizePt[1] * k
+    LaunchedEffect(index, pageWidthPx, vm.docVersion) { vm.renderPage(index, pageWidthPx) }
+    LaunchedEffect(index, vm.docVersion) { vm.loadAnnotations(index) }
+    val img = vm.pageBitmaps[index]
+    Box(
+        Modifier
+            .testTag("page-$index")
+            .size(with(density) { pageWidthPx.toDp() }, with(density) { heightPx.toDp() })
+            .background(Color.White),
+    ) {
+        if (img != null) Image(img.bitmap, null, Modifier.fillMaxSize(), contentScale = ContentScale.FillBounds)
+        AnnotationLayer(vm, index, k, zoom, onZoom, onTextAt, onSignAt, onEditArea)
+        if (vm.tool == Tool.NAVIGATE && vm.selectionPage == index) SelectionHandles(vm, k)
     }
 }
 
 @Composable
 private fun AnnotationLayer(
     vm: PdfStudioViewModel,
+    index: Int,
     k: Float,
     zoom: Float,
     onZoom: (Float) -> Unit,
-    onTextAt: (Float, Float) -> Unit,
-    onSignAt: (Float, Float) -> Unit,
-    onEditArea: (Float, Float, Float, Float) -> Unit,
+    onTextAt: (Int, Float, Float) -> Unit,
+    onSignAt: (Int, Float, Float) -> Unit,
+    onEditArea: (Int, Float, Float, Float, Float) -> Unit,
 ) {
     var dragStart by remember { mutableStateOf<Offset?>(null) }
     var dragEnd by remember { mutableStateOf<Offset?>(null) }
@@ -783,12 +862,12 @@ private fun AnnotationLayer(
                     onDoubleTap = { onZoom(if (zoom > 1.01f) 1f else 2f) },
                     onLongPress = {
                         haptics.performHapticFeedback(HapticFeedbackType.LongPress)
-                        vm.selectWordAt(it.x / k, it.y / k)
+                        vm.selectWordAt(index, it.x / k, it.y / k)
                     },
                     onTap = { vm.clearSelection() },
                 )
-                Tool.TEXT -> detectTapGestures { onTextAt(it.x / k, it.y / k) }
-                Tool.SIGN -> detectTapGestures { onSignAt(it.x / k, it.y / k) }
+                Tool.TEXT -> detectTapGestures { onTextAt(index, it.x / k, it.y / k) }
+                Tool.SIGN -> detectTapGestures { onSignAt(index, it.x / k, it.y / k) }
                 Tool.INK -> detectExactDrag(
                     onStart = { inkPoints = listOf(it) },
                     onMove = { inkPoints = inkPoints + it },
@@ -801,7 +880,7 @@ private fun AnnotationLayer(
                                 arr[2 * i] = p.x / k
                                 arr[2 * i + 1] = p.y / k
                             }
-                            vm.addAnnotation(Annotation.Ink(arr, vm.color, (vm.textSize / 6f).coerceAtLeast(1f)))
+                            vm.addAnnotation(index, Annotation.Ink(arr, vm.color, (vm.textSize / 6f).coerceAtLeast(1f)))
                         }
                         inkPoints = emptyList()
                     },
@@ -824,9 +903,9 @@ private fun AnnotationLayer(
                             val w = abs(e.x - s.x) / k
                             val h = abs(e.y - s.y) / k
                             if (w > 3 && h > 3) when (tool) {
-                                Tool.HIGHLIGHT -> vm.addAnnotation(Annotation.Highlight(x, y, w, h, highlightColor(vm.color)))
-                                Tool.WHITEOUT -> vm.addAnnotation(Annotation.Whiteout(x, y, w, h, AColor.WHITE))
-                                else -> onEditArea(x, y, w, h)
+                                Tool.HIGHLIGHT -> vm.addAnnotation(index, Annotation.Highlight(x, y, w, h, highlightColor(vm.color)))
+                                Tool.WHITEOUT -> vm.addAnnotation(index, Annotation.Whiteout(x, y, w, h, AColor.WHITE))
+                                else -> onEditArea(index, x, y, w, h)
                             }
                         }
                     },
@@ -841,7 +920,7 @@ private fun AnnotationLayer(
         val canvas = drawContext.canvas.nativeCanvas
         canvas.save()
         canvas.scale(k, k)
-        vm.annotations.forEach { drawAnnotation(canvas, it, bitmaps) }
+        vm.annotationsByPage[index]?.forEach { drawAnnotation(canvas, it, bitmaps) }
         if (inkPoints.size > 1) {
             val arr = FloatArray(inkPoints.size * 2)
             inkPoints.forEachIndexed { i, p ->
@@ -868,9 +947,11 @@ private fun AnnotationLayer(
                 strokeWidth = 1.5f / k
             })
         }
-        vm.selection?.let { sel ->
-            val paint = Paint().apply { color = AColor.argb(90, 0x21, 0x96, 0xF3) }
-            TextLayout.lineRects(vm.pageGlyphs, sel).forEach { r -> canvas.drawRect(r[0], r[1], r[2], r[3], paint) }
+        if (vm.selectionPage == index) {
+            vm.selection?.let { sel ->
+                val paint = Paint().apply { color = AColor.argb(90, 0x21, 0x96, 0xF3) }
+                TextLayout.lineRects(vm.pageGlyphs, sel).forEach { r -> canvas.drawRect(r[0], r[1], r[2], r[3], paint) }
+            }
         }
         canvas.restore()
     }

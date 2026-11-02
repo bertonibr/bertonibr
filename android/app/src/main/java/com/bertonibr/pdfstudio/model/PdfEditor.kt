@@ -125,6 +125,11 @@ class PdfEditor private constructor(
 
     class Rendered(val bitmap: Bitmap, val widthPt: Float, val heightPt: Float)
 
+    /** Largura e altura (pt) de cada página como aparecem na tela (já com a rotação). */
+    fun pageSizes(): List<FloatArray> = (0 until pageCount).map { i ->
+        renderer!!.openPage(i).use { floatArrayOf(it.width.toFloat(), it.height.toFloat()) }
+    }
+
     /** Renderiza a página com a largura indicada em pixels. */
     fun render(index: Int, widthPx: Int): Rendered {
         renderer!!.openPage(index).use { page ->
