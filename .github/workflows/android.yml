@@ -87,7 +87,7 @@ jobs:
       - uses: gradle/actions/setup-gradle@v4
       - name: Compilar APK
         run: |
-          ./gradlew --no-daemon assembleDebug -PversionCode=${{ github.run_number }}
+          ./gradlew --no-daemon assembleDebug -PversionCode=${{ github.run_number }} -PphoneOnly
           cp app/build/outputs/apk/debug/app-debug.apk pdf-studio.apk
       - name: Conferir assinatura (tem que ser sempre a mesma, senão a atualização não instala)
         run: |

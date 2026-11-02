@@ -29,6 +29,12 @@ android {
         versionCode = ciVersionCode ?: 2
         versionName = "1.1." + (ciVersionCode ?: 0)
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+
+        // APK publicado (-PphoneOnly): só processadores de celular (ARM). Os testes no
+        // emulador (x86_64) usam o APK completo. Economiza ~35 MB do tradutor.
+        if (project.hasProperty("phoneOnly")) {
+            ndk { abiFilters += listOf("arm64-v8a", "armeabi-v7a") }
+        }
     }
 
     buildTypes {
