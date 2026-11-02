@@ -20,6 +20,8 @@ import androidx.documentfile.provider.DocumentFile
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.bertonibr.pdfstudio.model.Annotation
+import com.bertonibr.pdfstudio.model.Glyph
+import com.bertonibr.pdfstudio.model.TextLayout
 import com.bertonibr.pdfstudio.model.PdfEditor
 import com.bertonibr.pdfstudio.service.ClaudeService
 import com.bertonibr.pdfstudio.service.Speech
@@ -78,6 +80,11 @@ class PdfStudioViewModel(app: Application) : AndroidViewModel(app) {
     var aiText by mutableStateOf(""); private set
     var aiRunning by mutableStateOf(false); private set
     var extractedText by mutableStateOf<String?>(null)
+
+    /** Texto da página atual (com posições) e seleção feita segurando o dedo. */
+    var pageGlyphs by mutableStateOf<List<Glyph>>(emptyList()); private set
+    var selection by mutableStateOf<IntRange?>(null); private set
+    private var glyphCache: Triple<Int, Int, List<Glyph>>? = null // (versão, página, glifos) — só na thread do PDF
 
     /** PDF que pediu senha (a tela mostra o diálogo de senha). */
     var passwordRequest by mutableStateOf<Uri?>(null)
@@ -166,6 +173,7 @@ class PdfStudioViewModel(app: Application) : AndroidViewModel(app) {
             hasDocument = true
             docName = name
             docUri = uri
+            selection = null
             current = 0
             aiText = ""
             tool = Tool.NAVIGATE
@@ -178,6 +186,7 @@ class PdfStudioViewModel(app: Application) : AndroidViewModel(app) {
         editor = null
         ui {
             hasDocument = false
+            selection = null
             docName = "PDF Studio"
             docUri = null
             page = null
@@ -193,6 +202,7 @@ class PdfStudioViewModel(app: Application) : AndroidViewModel(app) {
         val e = editor ?: return
         val n = e.pageCount
         ui {
+            selection = null
             pageCount = n
             current = current.coerceIn(0, n - 1)
             dirty = e.dirty
@@ -244,6 +254,7 @@ class PdfStudioViewModel(app: Application) : AndroidViewModel(app) {
 
     fun goTo(index: Int) {
         if (!hasDocument || index !in 0 until pageCount || index == current) return
+        selection = null
         current = index
         run(null) { renderCurrent() }
     }
@@ -411,6 +422,66 @@ class PdfStudioViewModel(app: Application) : AndroidViewModel(app) {
             val t = editor?.textInArea(idx, x, y, w, h) ?: ""
             ui { onText(t) }
         }
+    }
+
+    // ------------------------------------------------------------ seleção de texto
+
+    private fun glyphsFor(index: Int, version: Int): List<Glyph> {
+        glyphCache?.let { (v, p, g) -> if (v == version && p == index) return g }
+        val g = editor?.glyphs(index) ?: emptyList()
+        glyphCache = Triple(version, index, g)
+        return g
+    }
+
+    /** Segurar o dedo: seleciona a palavra sob o ponto (coordenadas em pontos). */
+    fun selectWordAt(x: Float, y: Float) {
+        val index = current
+        val version = docVersion
+        run(null) {
+            val glyphs = glyphsFor(index, version)
+            val i = TextLayout.nearest(glyphs, x, y, maxDistance = 24f)
+            ui {
+                if (index != current) return@ui
+                if (i == null) {
+                    message = if (glyphs.isEmpty()) "Esta página não tem texto selecionável (pode ser uma imagem digitalizada)."
+                    else "Nenhum texto neste ponto."
+                } else {
+                    pageGlyphs = glyphs
+                    selection = TextLayout.wordAt(glyphs, i)
+                }
+            }
+        }
+    }
+
+    /** Arrastar uma alça: move o início ou o fim da seleção para o glifo mais próximo. */
+    fun moveSelectionEdge(start: Boolean, x: Float, y: Float) {
+        val sel = selection ?: return
+        val i = TextLayout.nearest(pageGlyphs, x, y) ?: return
+        selection = if (start) {
+            if (i <= sel.last) i..sel.last else sel.last..i
+        } else {
+            if (i >= sel.first) sel.first..i else i..sel.first
+        }
+    }
+
+    fun selectAll() {
+        if (selection != null) TextLayout.all(pageGlyphs)?.let { selection = it }
+    }
+
+    fun clearSelection() {
+        selection = null
+    }
+
+    val selectedText: String
+        get() = selection?.let { TextLayout.text(pageGlyphs, it) } ?: ""
+
+    /** Marca o trecho selecionado com destaque amarelo (um retângulo por linha). */
+    fun highlightSelection() {
+        val sel = selection ?: return
+        TextLayout.lineRects(pageGlyphs, sel).forEach { r ->
+            addAnnotation(Annotation.Highlight(r[0], r[1], r[2] - r[0], r[3] - r[1], Color.parseColor("#FFEB3B")))
+        }
+        selection = null
     }
 
     // ------------------------------------------------------------ voz

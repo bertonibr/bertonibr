@@ -1,5 +1,7 @@
 package com.bertonibr.pdfstudio
 
+import android.content.ClipboardManager
+import android.content.Context
 import android.content.Intent
 import android.graphics.BitmapFactory
 import android.graphics.Color
@@ -9,7 +11,10 @@ import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertTextContains
 import androidx.compose.ui.test.click
 import androidx.compose.ui.test.doubleClick
+import androidx.compose.ui.test.hasAnyAncestor
 import androidx.compose.ui.test.hasClickAction
+import androidx.compose.ui.test.hasTestTag
+import androidx.compose.ui.test.longClick
 import androidx.compose.ui.test.hasSetTextAction
 import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.isRoot
@@ -192,6 +197,60 @@ class UiFlowTest {
         waitFor("zoom maior após a pinça (desenhar)", 15_000) { (vm.page?.bitmap?.width ?: 0) > before }
         rule.waitForIdle()
         assertTrue("a pinça não pode virar desenho", vm.annotations.isEmpty())
+    }
+
+    private fun inSelectionBar(label: String) =
+        rule.onNode(hasText(label) and hasAnyAncestor(hasTestTag("selectionBar")))
+
+    private fun clipboardText(): String? = rule.runOnUiThread {
+        (ctx.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager)
+            .primaryClip?.getItemAt(0)?.text?.toString()
+    }
+
+    @Test
+    fun longPressSelectsAndCopiesText() {
+        openSample(1)
+        val k = rule.onNodeWithTag("page").fetchSemanticsNode().size.width / 595f
+        // "Pagina" fica em x ≈ 72..116 pt, com a base da linha em y = 142 pt.
+        val longPressOnWord = {
+            rule.onNodeWithTag("page").performTouchInput { longClick(Offset(76f * k, 137f * k)) }
+        }
+
+        longPressOnWord()
+        waitFor("palavra selecionada") { vm.selection != null }
+        assertEquals("Pagina", vm.selectedText)
+        rule.onNodeWithTag("selectionBar").assertIsDisplayed()
+        rule.onNodeWithTag("selStart").assertExists()
+
+        inSelectionBar("Copiar").performClick()
+        waitFor("seleção fechada após copiar") { vm.selection == null }
+        assertEquals("Pagina", clipboardText())
+
+        // Arrastar a alça do fim para a direita estende a seleção.
+        longPressOnWord()
+        waitFor("seleção de novo") { vm.selection != null }
+        rule.onNodeWithTag("selEnd").performTouchInput {
+            swipe(center, center + Offset(130f * k, 0f), durationMillis = 500)
+        }
+        waitFor("seleção estendida") { vm.selectedText.contains("conteudo") }
+        assertTrue(vm.selectedText, vm.selectedText.startsWith("Pagina 1"))
+
+        inSelectionBar("Tudo").performClick()
+        waitFor("tudo selecionado") { vm.selectedText == "Pagina 1 conteudo original" }
+
+        inSelectionBar("Destacar").performClick()
+        waitAnnotations(1)
+        assertTrue(vm.annotations.single() is Annotation.Highlight)
+        assertTrue(vm.selection == null)
+
+        // Toque simples fecha a seleção; segurar fora do texto não seleciona nada.
+        longPressOnWord()
+        waitFor("seleção para fechar") { vm.selection != null }
+        rule.onNodeWithTag("page").performTouchInput { click(Offset(300f * k, 600f * k)) }
+        waitFor("seleção fechada com toque") { vm.selection == null }
+        rule.onNodeWithTag("page").performTouchInput { longClick(Offset(300f * k, 600f * k)) }
+        waitFor("aviso de nenhum texto") { exists("Nenhum texto neste ponto.") }
+        assertTrue(vm.selection == null)
     }
 
     @Test

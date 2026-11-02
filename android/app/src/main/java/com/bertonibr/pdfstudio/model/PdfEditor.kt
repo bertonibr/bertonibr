@@ -16,6 +16,7 @@ import com.tom_roush.pdfbox.pdmodel.graphics.image.JPEGFactory
 import com.tom_roush.pdfbox.pdmodel.interactive.annotation.PDAnnotationLink
 import com.tom_roush.pdfbox.text.PDFTextStripper
 import com.tom_roush.pdfbox.text.PDFTextStripperByArea
+import com.tom_roush.pdfbox.text.TextPosition
 import java.io.ByteArrayOutputStream
 import java.io.Closeable
 import java.io.File
@@ -266,6 +267,33 @@ class PdfEditor private constructor(
     }
 
     // ------------------------------------------------------------ texto
+
+    /** Caracteres da página com posição na tela, na ordem de leitura (para seleção de texto). */
+    fun glyphs(i: Int): List<Glyph> {
+        val out = ArrayList<Glyph>()
+        val stripper = object : PDFTextStripper() {
+            override fun writeString(text: String?, textPositions: MutableList<TextPosition>?) {
+                textPositions?.forEach { tp ->
+                    // Altura da "caixa" da letra: tamanho da fonte (a altura do PDFBox é aproximada).
+                    val em = if (tp.fontSizeInPt > 0f) tp.fontSizeInPt else tp.height * 1.4f
+                    out += Glyph(tp.unicode ?: "", tp.x, tp.y - em * 0.8f, maxOf(tp.width, 0.5f), em)
+                }
+            }
+
+            override fun writeWordSeparator() {
+                out += Glyph(" ", 0f, 0f, 0f, 0f)
+            }
+
+            override fun writeLineSeparator() {
+                out += Glyph("\n", 0f, 0f, 0f, 0f)
+            }
+        }
+        stripper.sortByPosition = true
+        stripper.startPage = i + 1
+        stripper.endPage = i + 1
+        stripper.getText(doc)
+        return out
+    }
 
     fun extractText(from: Int, to: Int): String {
         val s = PDFTextStripper()

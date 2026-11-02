@@ -119,6 +119,17 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.unit.IntOffset
+import androidx.compose.foundation.layout.offset
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.gestures.detectDragGestures
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material3.Surface
+import androidx.compose.runtime.rememberUpdatedState
+import com.bertonibr.pdfstudio.model.TextLayout
+import kotlin.math.roundToInt
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -391,8 +402,31 @@ fun PdfStudioScreen(vm: PdfStudioViewModel) {
                         .background(Color(0xAA000000), MaterialTheme.shapes.small).padding(8.dp, 4.dp),
                 )
             }
+            if (vm.selection != null && vm.tool == Tool.NAVIGATE) {
+                SelectionBar(
+                    modifier = Modifier.align(Alignment.TopCenter).padding(top = 8.dp, start = 8.dp, end = 8.dp),
+                    onCopy = {
+                        context.copy(vm.selectedText)
+                        vm.message = "Texto copiado."
+                        vm.clearSelection()
+                    },
+                    onHighlight = { vm.highlightSelection() },
+                    onSpeak = { vm.speak(vm.selectedText) },
+                    onExplain = {
+                        val t = vm.selectedText
+                        vm.clearSelection()
+                        showAssistant = true
+                        vm.askClaude(false, "Explique de forma simples este trecho do documento:\n\n\"$t\"")
+                    },
+                    onAll = { vm.selectAll() },
+                    onClose = { vm.clearSelection() },
+                )
+            }
         }
     }
+
+    // Seleção de texto só existe na ferramenta Navegar.
+    LaunchedEffect(vm.tool) { if (vm.tool != Tool.NAVIGATE) vm.clearSelection() }
 
     // ---------------------------------------------------------------- diálogos e painéis
     textRequest?.let { req ->
@@ -728,6 +762,7 @@ private fun PageView(
             ) {
                 Image(page.bitmap, null, Modifier.fillMaxSize(), contentScale = ContentScale.FillBounds)
                 AnnotationLayer(vm, k, zoom, onZoom, onTextAt, onSignAt, onEditArea)
+                if (navigate) SelectionHandles(vm, k)
             }
         }
     }
@@ -748,11 +783,19 @@ private fun AnnotationLayer(
     var inkPoints by remember { mutableStateOf<List<Offset>>(emptyList()) }
     val bitmaps = remember { IdentityHashMap<ByteArray, android.graphics.Bitmap>() }
     val tool = vm.tool
+    val haptics = LocalHapticFeedback.current
 
     Canvas(
         Modifier.fillMaxSize().pointerInput(tool, k, zoom) {
             when (tool) {
-                Tool.NAVIGATE -> detectTapGestures(onDoubleTap = { onZoom(if (zoom > 1.01f) 1f else 2f) })
+                Tool.NAVIGATE -> detectTapGestures(
+                    onDoubleTap = { onZoom(if (zoom > 1.01f) 1f else 2f) },
+                    onLongPress = {
+                        haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                        vm.selectWordAt(it.x / k, it.y / k)
+                    },
+                    onTap = { vm.clearSelection() },
+                )
                 Tool.TEXT -> detectTapGestures { onTextAt(it.x / k, it.y / k) }
                 Tool.SIGN -> detectTapGestures { onSignAt(it.x / k, it.y / k) }
                 Tool.INK -> detectExactDrag(
@@ -834,7 +877,83 @@ private fun AnnotationLayer(
                 strokeWidth = 1.5f / k
             })
         }
+        vm.selection?.let { sel ->
+            val paint = Paint().apply { color = AColor.argb(90, 0x21, 0x96, 0xF3) }
+            TextLayout.lineRects(vm.pageGlyphs, sel).forEach { r -> canvas.drawRect(r[0], r[1], r[2], r[3], paint) }
+        }
         canvas.restore()
+    }
+}
+
+/** Alças nas pontas da seleção: arraste para aumentar ou diminuir o trecho. */
+@Composable
+private fun SelectionHandles(vm: PdfStudioViewModel, k: Float) {
+    val sel = vm.selection ?: return
+    val (first, last) = TextLayout.edges(vm.pageGlyphs, sel) ?: return
+    SelectionHandle(Offset(first.x * k, (first.top + first.h) * k), "selStart") { p ->
+        vm.moveSelectionEdge(true, p.x / k, p.y / k)
+    }
+    SelectionHandle(Offset((last.x + last.w) * k, (last.top + last.h) * k), "selEnd") { p ->
+        vm.moveSelectionEdge(false, p.x / k, p.y / k)
+    }
+}
+
+@Composable
+private fun SelectionHandle(anchor: Offset, tag: String, onMove: (Offset) -> Unit) {
+    val density = LocalDensity.current
+    val sizePx = with(density) { 28.dp.toPx() }
+    val currentAnchor by rememberUpdatedState(anchor)
+    val currentOnMove by rememberUpdatedState(onMove)
+    val color = MaterialTheme.colorScheme.primary
+    Box(
+        Modifier
+            .offset { IntOffset((anchor.x - sizePx / 2).roundToInt(), anchor.y.roundToInt()) }
+            .size(28.dp)
+            .testTag(tag)
+            .pointerInput(Unit) {
+                var finger = Offset.Zero
+                detectDragGestures(
+                    onDragStart = { finger = currentAnchor },
+                    onDrag = { change, amount ->
+                        change.consume()
+                        finger += amount
+                        currentOnMove(finger)
+                    },
+                )
+            }
+    ) {
+        Canvas(Modifier.fillMaxSize()) {
+            drawLine(color, Offset(size.width / 2, 0f), Offset(size.width / 2, size.height / 2), strokeWidth = 3.dp.toPx())
+            drawCircle(color, radius = size.minDimension / 3, center = Offset(size.width / 2, size.height * 0.62f))
+        }
+    }
+}
+
+/** Barra com as ações do texto selecionado. */
+@Composable
+private fun SelectionBar(
+    modifier: Modifier,
+    onCopy: () -> Unit,
+    onHighlight: () -> Unit,
+    onSpeak: () -> Unit,
+    onExplain: () -> Unit,
+    onAll: () -> Unit,
+    onClose: () -> Unit,
+) {
+    Surface(
+        modifier = modifier.testTag("selectionBar"),
+        shape = RoundedCornerShape(24.dp),
+        shadowElevation = 6.dp,
+        tonalElevation = 2.dp,
+    ) {
+        Row(Modifier.horizontalScroll(rememberScrollState()).padding(horizontal = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+            TextButton(onClick = onCopy) { Text("Copiar") }
+            TextButton(onClick = onHighlight) { Text("Destacar") }
+            TextButton(onClick = onSpeak) { Text("Ouvir") }
+            TextButton(onClick = onExplain) { Text("Explicar") }
+            TextButton(onClick = onAll) { Text("Tudo") }
+            IconButton(onClick = onClose, modifier = Modifier.size(40.dp)) { Icon(Icons.Filled.Close, "Fechar seleção") }
+        }
     }
 }
 
