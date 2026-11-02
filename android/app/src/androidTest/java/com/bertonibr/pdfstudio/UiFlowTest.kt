@@ -97,16 +97,23 @@ class UiFlowTest {
 
     /** Árvore de acessibilidade de todas as janelas — vai na mensagem de erro. */
     private fun dumpTree(): String = try {
-        rule.onAllNodes(isRoot()).printToString()
+        rule.onAllNodes(isRoot()).printToString(maxDepth = Int.MAX_VALUE).take(8000)
     } catch (e: Throwable) {
         "(árvore indisponível: $e)"
+    }
+
+    private fun vmState(): String = try {
+        "message=${vm.message} selection=${vm.selection} busy=${vm.busy} tool=${vm.tool} " +
+            "annotations=${vm.annotations.size} page=${vm.current + 1}/${vm.pageCount}"
+    } catch (e: Throwable) {
+        "(estado indisponível: $e)"
     }
 
     private fun waitFor(what: String, timeoutMs: Long = 10_000, condition: () -> Boolean) {
         try {
             rule.waitUntil(timeoutMs, condition)
         } catch (e: Throwable) {
-            throw AssertionError("Tempo esgotado esperando: $what\n--- Tela ---\n${dumpTree()}", e)
+            throw AssertionError("Tempo esgotado esperando: $what\n--- Estado ---\n${vmState()}\n--- Tela ---\n${dumpTree()}", e)
         }
     }
 
@@ -249,7 +256,8 @@ class UiFlowTest {
         rule.onNodeWithTag("page").performTouchInput { click(Offset(300f * k, 600f * k)) }
         waitFor("seleção fechada com toque") { vm.selection == null }
         rule.onNodeWithTag("page").performTouchInput { longClick(Offset(300f * k, 600f * k)) }
-        waitFor("aviso de nenhum texto") { exists("Nenhum texto neste ponto.") }
+        val notice = "Nenhum texto neste ponto."
+        waitFor("aviso de nenhum texto") { vm.message == notice || exists(notice) }
         assertTrue(vm.selection == null)
     }
 
