@@ -134,6 +134,14 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material3.Surface
+import androidx.compose.material3.Switch
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material.icons.filled.Translate
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.ui.draw.scale
+import com.bertonibr.pdfstudio.TranslationState
+import com.bertonibr.pdfstudio.service.languageName
+import kotlinx.coroutines.delay
 import androidx.compose.runtime.rememberUpdatedState
 import com.bertonibr.pdfstudio.model.TextLayout
 import kotlin.math.roundToInt
@@ -281,6 +289,7 @@ fun PdfStudioScreen(vm: PdfStudioViewModel) {
                                         if (it.isNotBlank()) vm.search(it.trim())
                                     }
                                 }
+                                MenuEntry("Traduzir página", vm.hasDocument, close) { vm.translatePage() }
                                 MenuEntry("Texto da página", vm.hasDocument, close) { vm.showText(false) }
                                 MenuEntry("Texto do documento", vm.hasDocument, close) { vm.showText(true) }
                                 MenuEntry("Ler documento em voz alta", vm.hasDocument, close) { vm.readPageAloud(true) }
@@ -410,6 +419,14 @@ fun PdfStudioScreen(vm: PdfStudioViewModel) {
                         .background(Color(0xAA000000), MaterialTheme.shapes.small).padding(8.dp, 4.dp),
                 )
             }
+            if (vm.translation != null) {
+                TranslationCard(
+                    vm = vm,
+                    modifier = Modifier.align(Alignment.BottomCenter).padding(12.dp).fillMaxWidth(),
+                    onCopy = { vm.copyToClipboard(it) },
+                    onSpeak = { vm.speak(it) },
+                )
+            }
             if (vm.selection != null && vm.tool == Tool.NAVIGATE) {
                 SelectionBar(
                     modifier = Modifier.align(Alignment.TopCenter).padding(top = 8.dp, start = 8.dp, end = 8.dp),
@@ -417,6 +434,7 @@ fun PdfStudioScreen(vm: PdfStudioViewModel) {
                         vm.copyToClipboard(vm.selectedText)
                         vm.clearSelection()
                     },
+                    onTranslate = { vm.translateSelection() },
                     onHighlight = { vm.highlightSelection() },
                     onSpeak = { vm.speak(vm.selectedText) },
                     onExplain = {
@@ -434,6 +452,17 @@ fun PdfStudioScreen(vm: PdfStudioViewModel) {
 
     // Seleção de texto só existe na ferramenta Navegar.
     LaunchedEffect(vm.tool) { if (vm.tool != Tool.NAVIGATE) vm.clearSelection() }
+
+    // Tradução automática: ao selecionar (e depois de parar de mexer nas alças), traduz.
+    LaunchedEffect(vm.selection, vm.selectionPage, vm.autoTranslate) {
+        if (vm.selection == null) {
+            if (vm.translationFromSelection) vm.clearTranslation()
+            return@LaunchedEffect
+        }
+        if (!vm.autoTranslate) return@LaunchedEffect
+        delay(700)
+        vm.translateSelection()
+    }
 
     // ---------------------------------------------------------------- diálogos e painéis
     textRequest?.let { req ->
@@ -1027,11 +1056,73 @@ private fun SelectionHandle(anchor: Offset, tag: String, onMove: (Offset) -> Uni
     }
 }
 
+/** Quadro com a tradução para o português (da seleção ou da página). */
+@Composable
+private fun TranslationCard(
+    vm: PdfStudioViewModel,
+    modifier: Modifier,
+    onCopy: (String) -> Unit,
+    onSpeak: (String) -> Unit,
+) {
+    val state = vm.translation ?: return
+    Surface(
+        modifier = modifier.testTag("translationCard"),
+        shape = RoundedCornerShape(16.dp),
+        shadowElevation = 8.dp,
+        tonalElevation = 2.dp,
+    ) {
+        Column(Modifier.padding(start = 12.dp, end = 4.dp, top = 4.dp, bottom = 8.dp).heightIn(max = 280.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(Icons.Filled.Translate, null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(20.dp))
+                Spacer(Modifier.width(8.dp))
+                val title = when (state) {
+                    is TranslationState.Done ->
+                        if (state.alreadyPortuguese) "O texto já está em português"
+                        else "Tradução (${languageName(state.sourceLanguage)} → português)"
+                    else -> "Tradução"
+                }
+                Text(title, style = MaterialTheme.typography.titleSmall, modifier = Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Text("Auto", style = MaterialTheme.typography.labelSmall)
+                Switch(
+                    checked = vm.autoTranslate,
+                    onCheckedChange = { vm.setAutoTranslate(it) },
+                    modifier = Modifier.scale(0.8f).testTag("autoTranslate"),
+                )
+                IconButton(onClick = { vm.clearTranslation() }, modifier = Modifier.size(40.dp)) {
+                    Icon(Icons.Filled.Close, "Fechar tradução")
+                }
+            }
+            when (state) {
+                is TranslationState.Working -> Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(vertical = 8.dp)) {
+                    CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
+                    Spacer(Modifier.width(8.dp))
+                    Text(state.message, style = MaterialTheme.typography.bodyMedium)
+                }
+                is TranslationState.Failed -> Text(
+                    state.message,
+                    color = MaterialTheme.colorScheme.error,
+                    modifier = Modifier.padding(vertical = 8.dp, horizontal = 4.dp),
+                )
+                is TranslationState.Done -> {
+                    SelectionContainer(Modifier.weight(1f, fill = false)) {
+                        Text(state.text, modifier = Modifier.verticalScroll(rememberScrollState()).padding(end = 8.dp))
+                    }
+                    Row {
+                        TextButton(onClick = { onCopy(state.text) }) { Text("Copiar tradução") }
+                        TextButton(onClick = { onSpeak(state.text) }) { Text("Ouvir") }
+                    }
+                }
+            }
+        }
+    }
+}
+
 /** Barra com as ações do texto selecionado. */
 @Composable
 private fun SelectionBar(
     modifier: Modifier,
     onCopy: () -> Unit,
+    onTranslate: () -> Unit,
     onHighlight: () -> Unit,
     onSpeak: () -> Unit,
     onExplain: () -> Unit,
@@ -1046,6 +1137,7 @@ private fun SelectionBar(
     ) {
         Row(Modifier.horizontalScroll(rememberScrollState()).padding(horizontal = 4.dp), verticalAlignment = Alignment.CenterVertically) {
             TextButton(onClick = onCopy) { Text("Copiar") }
+            TextButton(onClick = onTranslate) { Text("Traduzir") }
             TextButton(onClick = onHighlight) { Text("Destacar") }
             TextButton(onClick = onSpeak) { Text("Ouvir") }
             TextButton(onClick = onExplain) { Text("Explicar") }

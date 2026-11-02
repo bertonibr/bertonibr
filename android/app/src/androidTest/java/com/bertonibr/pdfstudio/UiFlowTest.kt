@@ -39,6 +39,8 @@ import androidx.lifecycle.ViewModelProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.bertonibr.pdfstudio.model.Annotation
 import com.bertonibr.pdfstudio.model.PdfEditor
+import com.bertonibr.pdfstudio.service.TextTranslator
+import com.bertonibr.pdfstudio.service.TranslationResult
 import okhttp3.mockwebserver.MockWebServer
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
@@ -65,6 +67,17 @@ class UiFlowTest {
         rule.runOnUiThread {
             vm.apiKey = ""
             vm.claudeBaseUrl = null
+            // Tradução simulada (rápida e sem internet) nos testes de interface.
+            vm.translator = fakeTranslator
+            vm.setAutoTranslate(true)
+        }
+    }
+
+    private val fakeTranslator = object : TextTranslator {
+        override suspend fun translate(text: String, onStatus: (String) -> Unit): TranslationResult {
+            onStatus("Baixando o tradutor...")
+            kotlinx.coroutines.delay(50)
+            return TranslationResult("PT: $text", "en")
         }
     }
 
@@ -299,6 +312,52 @@ class UiFlowTest {
         val notice = "Nenhum texto neste ponto."
         waitFor("aviso de nenhum texto") { vm.message == notice || exists(notice) }
         assertTrue(vm.selection == null)
+    }
+
+    @Test
+    fun selectingTextShowsPortugueseTranslation() {
+        openSample(1)
+        val k = rule.onNodeWithTag("page-0").fetchSemanticsNode().size.width / 595f
+
+        // Tradução automática ao selecionar.
+        longPressOnFirstWord(k)
+        waitFor("tradução automática da seleção") { exists("PT: Pagina") }
+        rule.onNodeWithTag("translationCard").assertIsDisplayed()
+        rule.onNodeWithText("Tradução (inglês → português)").assertExists()
+
+        // Copiar a tradução.
+        rule.onNodeWithText("Copiar tradução").performClick()
+        waitFor("tradução copiada") { vm.lastCopied == "PT: Pagina" }
+
+        // Desligar a automática: selecionar não traduz mais sozinho...
+        rule.onNodeWithTag("autoTranslate").performClick()
+        waitFor("automática desligada") { !vm.autoTranslate && vm.translation == null }
+        rule.onNodeWithTag("page-0").performTouchInput { click(Offset(300f * k, 600f * k)) }
+        waitFor("seleção fechada") { vm.selection == null }
+        longPressOnFirstWord(k)
+        waitFor("seleção de novo") { vm.selection != null }
+        rule.mainClock.advanceTimeBy(2_000)
+        rule.waitForIdle()
+        assertTrue("não deveria traduzir sozinho", vm.translation == null)
+
+        // ...mas o botão Traduzir da barra traduz.
+        inSelectionBar("Traduzir").performClick()
+        waitFor("tradução pelo botão") { exists("PT: Pagina") }
+
+        // Fechar a seleção fecha a tradução dela.
+        rule.onNodeWithTag("page-0").performTouchInput { click(Offset(300f * k, 600f * k)) }
+        waitFor("tradução fecha com a seleção") { vm.translation == null }
+        rule.runOnUiThread { vm.setAutoTranslate(true) }
+    }
+
+    @Test
+    fun translatePageFromMenu() {
+        openSample(1)
+        rule.onNodeWithContentDescription("Mais").performClick()
+        rule.onNodeWithText("Traduzir página").performClick()
+        waitFor("tradução da página") { exists("PT: Pagina 1 conteudo original", substring = true) }
+        rule.onNodeWithContentDescription("Fechar tradução").performClick()
+        waitFor("quadro fechado") { vm.translation == null }
     }
 
     @Test

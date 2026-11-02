@@ -85,6 +85,11 @@ dependencies {
     // API do Claude
     implementation("com.anthropic:anthropic-java:3.2.0")
 
+    // Tradução no próprio celular (Google ML Kit): detecção de idioma + tradutor
+    implementation("com.google.mlkit:translate:17.0.3")
+    implementation("com.google.mlkit:language-id:17.0.6")
+    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-play-services:1.9.0")
+
     // Testes no emulador/aparelho (./gradlew connectedDebugAndroidTest)
     androidTestImplementation(composeBom)
     androidTestImplementation("androidx.compose.ui:ui-test-junit4")

@@ -43,6 +43,7 @@ A versão Android nativa (Kotlin + Jetpack Compose) fica em `android/`, com os m
 
 - **APK pronto:** baixe direto em <https://github.com/bertonibr/bertonibr/releases/latest/download/pdf-studio.apk> e instale no celular (permita "instalar apps desconhecidos").
 - **Testes automáticos:** a cada mudança, o GitHub Actions roda os testes num emulador Android (motor de PDF, anotações, páginas, senhas, Claude com servidor simulado e fluxos da interface). O APK só é publicado se todos passarem. Para rodar localmente com um aparelho/emulador conectado: `./gradlew connectedDebugAndroidTest`.
+- **Tradução:** ao selecionar um trecho (segurando o dedo), a tradução para o português aparece sozinha; também há "Traduzir página" no menu ⋮. Usa o tradutor do Google no próprio celular (ML Kit): gratuito, sem chave, baixa o pacote do idioma uma vez (~30 MB) e depois funciona até sem internet.
 - **Compilar localmente:** abra a pasta `android/` no Android Studio ou rode `./gradlew assembleDebug`.
 - Requer Android 8.0 ou mais recente.
 

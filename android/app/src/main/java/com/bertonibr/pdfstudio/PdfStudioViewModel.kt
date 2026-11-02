@@ -27,7 +27,11 @@ import com.bertonibr.pdfstudio.model.Glyph
 import com.bertonibr.pdfstudio.model.TextLayout
 import com.bertonibr.pdfstudio.model.PdfEditor
 import com.bertonibr.pdfstudio.service.ClaudeService
+import com.bertonibr.pdfstudio.service.MlKitTranslator
 import com.bertonibr.pdfstudio.service.Speech
+import com.bertonibr.pdfstudio.service.TextTranslator
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Job
 import com.tom_roush.pdfbox.android.PDFBoxResourceLoader
 import com.tom_roush.pdfbox.pdmodel.encryption.InvalidPasswordException
 import kotlinx.coroutines.Dispatchers
@@ -57,6 +61,13 @@ class PageImage(
     val renderWidth: Int = 0,
     val version: Int = 0,
 )
+
+/** Estado do quadro de tradução. */
+sealed interface TranslationState {
+    data class Working(val message: String) : TranslationState
+    data class Done(val text: String, val sourceLanguage: String, val alreadyPortuguese: Boolean) : TranslationState
+    data class Failed(val message: String) : TranslationState
+}
 
 class PdfStudioViewModel(app: Application) : AndroidViewModel(app) {
 
@@ -111,6 +122,23 @@ class PdfStudioViewModel(app: Application) : AndroidViewModel(app) {
 
     /** PDF que pediu senha (a tela mostra o diálogo de senha). */
     var passwordRequest by mutableStateOf<Uri?>(null)
+
+    // ------------------------------------------------------------ tradução (estado)
+    private var translatorImpl: TextTranslator? = null
+
+    /** Tradutor usado (ML Kit; os testes trocam por um simulado). */
+    var translator: TextTranslator
+        get() = translatorImpl ?: MlKitTranslator().also { translatorImpl = it }
+        set(value) {
+            translatorImpl = value
+        }
+    var translation by mutableStateOf<TranslationState?>(null); private set
+    var autoTranslate by mutableStateOf(prefs.getBoolean("autoTranslate", true)); private set
+
+    /** A tradução mostrada veio da seleção (some quando a seleção é fechada). */
+    var translationFromSelection = false
+        private set
+    private var translateJob: Job? = null
 
     /** Só para testes automáticos: aponta o Claude para um servidor simulado. */
     var claudeBaseUrl: String? = null
@@ -550,6 +578,55 @@ class PdfStudioViewModel(app: Application) : AndroidViewModel(app) {
         selection = null
     }
 
+    // ------------------------------------------------------------ tradução
+
+    fun setAutoTranslate(on: Boolean) {
+        autoTranslate = on
+        prefs.edit().putBoolean("autoTranslate", on).apply()
+        if (!on && translationFromSelection) clearTranslation()
+    }
+
+    /** Traduz o trecho selecionado para o português. */
+    fun translateSelection() {
+        val text = selectedText
+        if (text.isNotBlank()) translate(text, fromSelection = true)
+    }
+
+    /** Traduz o texto da página atual. */
+    fun translatePage() {
+        val index = current
+        run("Lendo o texto da página...") {
+            val text = editor?.extractText(index, index).orEmpty()
+            ui {
+                if (text.isBlank()) message = "Esta página não tem texto para traduzir (pode ser uma imagem digitalizada)."
+                else translate(text, fromSelection = false)
+            }
+        }
+    }
+
+    private fun translate(text: String, fromSelection: Boolean) {
+        translateJob?.cancel()
+        translationFromSelection = fromSelection
+        translateJob = viewModelScope.launch {
+            translation = TranslationState.Working("Traduzindo...")
+            try {
+                val r = translator.translate(text.trim()) { status -> translation = TranslationState.Working(status) }
+                translation = TranslationState.Done(r.text, r.sourceLanguage, r.alreadyPortuguese)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Throwable) {
+                translation = TranslationState.Failed(e.message ?: "Não foi possível traduzir.")
+            }
+        }
+    }
+
+    fun clearTranslation() {
+        translateJob?.cancel()
+        translateJob = null
+        translation = null
+        translationFromSelection = false
+    }
+
     // ------------------------------------------------------------ voz
 
     fun readPageAloud(wholeDoc: Boolean = false) = run("Preparando leitura...") {
@@ -607,6 +684,7 @@ class PdfStudioViewModel(app: Application) : AndroidViewModel(app) {
 
     override fun onCleared() {
         speech.shutdown()
+        translatorImpl?.close()
         val e = editor
         editor = null
         // Fecha na própria thread do PDF, depois de qualquer tarefa em andamento.
