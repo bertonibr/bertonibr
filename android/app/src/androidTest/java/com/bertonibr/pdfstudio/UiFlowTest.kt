@@ -209,21 +209,17 @@ class UiFlowTest {
     private fun inSelectionBar(label: String) =
         rule.onNode(hasText(label) and hasAnyAncestor(hasTestTag("selectionBar")))
 
-    private fun clipboardText(): String? = rule.runOnUiThread {
-        (ctx.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager)
-            .primaryClip?.getItemAt(0)?.text?.toString()
+    private fun longPressOnFirstWord(k: Float) {
+        // "Pagina" fica em x ≈ 72..116 pt, com a base da linha em y = 142 pt.
+        rule.onNodeWithTag("page").performTouchInput { longClick(Offset(76f * k, 137f * k)) }
     }
 
     @Test
     fun longPressSelectsAndCopiesText() {
         openSample(1)
         val k = rule.onNodeWithTag("page").fetchSemanticsNode().size.width / 595f
-        // "Pagina" fica em x ≈ 72..116 pt, com a base da linha em y = 142 pt.
-        val longPressOnWord = {
-            rule.onNodeWithTag("page").performTouchInput { longClick(Offset(76f * k, 137f * k)) }
-        }
 
-        longPressOnWord()
+        longPressOnFirstWord(k)
         waitFor("palavra selecionada") { vm.selection != null }
         assertEquals("Pagina", vm.selectedText)
         rule.onNodeWithTag("selectionBar").assertIsDisplayed()
@@ -231,10 +227,10 @@ class UiFlowTest {
 
         inSelectionBar("Copiar").performClick()
         waitFor("seleção fechada após copiar") { vm.selection == null }
-        assertEquals("Pagina", clipboardText())
+        assertEquals("Pagina", vm.lastCopied)
 
         // Arrastar a alça do fim para a direita estende a seleção.
-        longPressOnWord()
+        longPressOnFirstWord(k)
         waitFor("seleção de novo") { vm.selection != null }
         rule.onNodeWithTag("selEnd").performTouchInput {
             swipe(center, center + Offset(130f * k, 0f), durationMillis = 500)
@@ -249,12 +245,18 @@ class UiFlowTest {
         waitAnnotations(1)
         assertTrue(vm.annotations.single() is Annotation.Highlight)
         assertTrue(vm.selection == null)
+    }
 
-        // Toque simples fecha a seleção; segurar fora do texto não seleciona nada.
-        longPressOnWord()
-        waitFor("seleção para fechar") { vm.selection != null }
+    @Test
+    fun tapClearsSelectionAndBlankLongPressSelectsNothing() {
+        openSample(1)
+        val k = rule.onNodeWithTag("page").fetchSemanticsNode().size.width / 595f
+
+        longPressOnFirstWord(k)
+        waitFor("palavra selecionada") { vm.selection != null }
         rule.onNodeWithTag("page").performTouchInput { click(Offset(300f * k, 600f * k)) }
         waitFor("seleção fechada com toque") { vm.selection == null }
+
         rule.onNodeWithTag("page").performTouchInput { longClick(Offset(300f * k, 600f * k)) }
         val notice = "Nenhum texto neste ponto."
         waitFor("aviso de nenhum texto") { vm.message == notice || exists(notice) }

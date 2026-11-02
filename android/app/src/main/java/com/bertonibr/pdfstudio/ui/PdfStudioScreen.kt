@@ -406,8 +406,7 @@ fun PdfStudioScreen(vm: PdfStudioViewModel) {
                 SelectionBar(
                     modifier = Modifier.align(Alignment.TopCenter).padding(top = 8.dp, start = 8.dp, end = 8.dp),
                     onCopy = {
-                        context.copy(vm.selectedText)
-                        vm.message = "Texto copiado."
+                        vm.copyToClipboard(vm.selectedText)
                         vm.clearSelection()
                     },
                     onHighlight = { vm.highlightSelection() },
@@ -511,7 +510,7 @@ fun PdfStudioScreen(vm: PdfStudioViewModel) {
     vm.extractedText?.let { text ->
         TextViewerDialog(
             text = text,
-            onCopy = { context.copy(text); vm.message = "Copiado." },
+            onCopy = { vm.copyToClipboard(text) },
             onSpeak = { vm.speak(text) },
             onDismiss = { vm.extractedText = null },
         )
@@ -538,10 +537,7 @@ fun PdfStudioScreen(vm: PdfStudioViewModel) {
             onDismissRequest = { showAssistant = false },
             sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
         ) {
-            AssistantPanel(vm, onConfigureKey = { showApiKey = true }, onCopy = {
-                context.copy(vm.aiText)
-                vm.message = "Copiado."
-            })
+            AssistantPanel(vm, onConfigureKey = { showApiKey = true }, onCopy = { vm.copyToClipboard(vm.aiText) })
         }
     }
 }
@@ -586,11 +582,6 @@ private fun Context.takePermission(uri: Uri) {
         } catch (_: SecurityException) {
         }
     }
-}
-
-private fun Context.copy(text: String) {
-    val cm = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-    cm.setPrimaryClip(ClipData.newPlainText("PDF Studio", text))
 }
 
 // ==================================================================== componentes

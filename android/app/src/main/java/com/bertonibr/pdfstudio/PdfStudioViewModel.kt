@@ -1,6 +1,9 @@
 package com.bertonibr.pdfstudio
 
 import android.app.Application
+import android.content.ClipData
+import android.content.ClipboardManager
+import android.os.Build
 import android.content.Context
 import android.content.Intent
 import android.graphics.Bitmap
@@ -422,6 +425,20 @@ class PdfStudioViewModel(app: Application) : AndroidViewModel(app) {
             val t = editor?.textInArea(idx, x, y, w, h) ?: ""
             ui { onText(t) }
         }
+    }
+
+    // ------------------------------------------------------------ área de transferência
+
+    /** Último texto copiado pelo app (útil para conferir nos testes). */
+    var lastCopied: String? = null
+        private set
+
+    fun copyToClipboard(text: String) {
+        val cm = ctx.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+        cm.setPrimaryClip(ClipData.newPlainText("PDF Studio", text))
+        lastCopied = text
+        // A partir do Android 13 o próprio sistema mostra o aviso de "copiado".
+        if (Build.VERSION.SDK_INT < 33) message = "Texto copiado."
     }
 
     // ------------------------------------------------------------ seleção de texto
