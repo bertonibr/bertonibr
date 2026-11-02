@@ -133,7 +133,10 @@ class PdfStudioViewModel(app: Application) : AndroidViewModel(app) {
             translatorImpl = value
         }
     var translation by mutableStateOf<TranslationState?>(null); private set
-    var autoTranslate by mutableStateOf(prefs.getBoolean("autoTranslate", true)); private set
+    private var autoTranslateState by mutableStateOf(prefs.getBoolean("autoTranslate", true))
+
+    /** Traduzir sozinho ao selecionar (muda com [setAutoTranslate]). */
+    val autoTranslate: Boolean get() = autoTranslateState
 
     /** A tradução mostrada veio da seleção (some quando a seleção é fechada). */
     var translationFromSelection = false
@@ -581,7 +584,7 @@ class PdfStudioViewModel(app: Application) : AndroidViewModel(app) {
     // ------------------------------------------------------------ tradução
 
     fun setAutoTranslate(on: Boolean) {
-        autoTranslate = on
+        autoTranslateState = on
         prefs.edit().putBoolean("autoTranslate", on).apply()
         if (!on && translationFromSelection) clearTranslation()
     }
