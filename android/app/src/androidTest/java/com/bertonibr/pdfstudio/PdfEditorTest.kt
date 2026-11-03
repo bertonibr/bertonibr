@@ -55,6 +55,23 @@ class PdfEditorTest {
         }
     }
 
+    /** Miniatura do histórico: largura pedida e, depois de salvar, com as anotações. */
+    @Test
+    fun thumbnailForHistory() {
+        open(TestPdfs.sample(2)).use { e ->
+            val plain = e.thumbnail(200)
+            assertEquals(200, plain.width)
+            assertEquals(283f, plain.height.toFloat(), 2f) // proporção A4
+            assertWhite(plain.getPixel(100, 25), "sem anotação:")
+
+            // Quadrado vermelho de 300 pt no topo da página 1 (ainda não gravado no documento).
+            e.addAnnotation(0, Annotation.Whiteout(150f, 20f, 300f, 300f, Color.RED))
+            assertWhite(e.thumbnail(200).getPixel(100, 25), "sem os bytes salvos:")
+            val saved = e.toBytes(true)
+            assertRed(e.thumbnail(200, saved).getPixel(100, 25), "com os bytes salvos:")
+        }
+    }
+
     /** A marca precisa cair no mesmo lugar da tela em todas as rotações. */
     @Test
     fun annotationsLandWhereDrawnOnEveryRotation() {

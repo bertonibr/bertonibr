@@ -39,6 +39,7 @@ import androidx.lifecycle.ViewModelProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.bertonibr.pdfstudio.model.Annotation
 import com.bertonibr.pdfstudio.model.PdfEditor
+import com.bertonibr.pdfstudio.model.RecentStore
 import com.bertonibr.pdfstudio.service.TextTranslator
 import com.bertonibr.pdfstudio.service.TranslationResult
 import okhttp3.mockwebserver.MockWebServer
@@ -70,6 +71,8 @@ class UiFlowTest {
             // Tradução simulada (rápida e sem internet) nos testes de interface.
             vm.translator = fakeTranslator
             vm.setAutoTranslate(true)
+            // Cada teste começa com o histórico vazio (senão reabriria na página onde o anterior parou).
+            vm.clearRecents(includeFavorites = true)
         }
     }
 
@@ -576,6 +579,71 @@ class UiFlowTest {
         rule.runOnUiThread { vm.createFromImages(listOf(Uri.fromFile(img), Uri.fromFile(img))) }
         rule.waitUntil(20_000) { vm.pageCount == 2 && vm.page != null }
         rule.waitUntil(5_000) { exists("• Novo documento.pdf") }
+    }
+
+    private fun pressBack() = rule.runOnUiThread { rule.activity.onBackPressedDispatcher.onBackPressed() }
+
+    @Test
+    fun recentDocumentsHistory() {
+        rule.onNodeWithText("Os PDFs que você abrir aparecem aqui.").assertIsDisplayed()
+
+        // Abre e vai até a página 3.
+        openSample(3, "relatorio.pdf")
+        rule.runOnUiThread { vm.goTo(2) }
+        waitFor("página 3") { vm.current == 2 && exists("3 / 3") }
+
+        // Voltar fecha o documento e mostra a lista de recentes, com miniatura.
+        pressBack()
+        waitFor("tela inicial com o histórico") { !vm.hasDocument && exists("relatorio.pdf") }
+        rule.onNodeWithText("3 páginas", substring = true).assertIsDisplayed()
+        val id = vm.recents.single().id
+        waitFor("miniatura e cópia guardadas") {
+            RecentStore(ctx).thumbFile(id).length() > 0 && RecentStore(ctx).copyFile(id).length() > 0
+        }
+
+        // Tocar no item reabre na página em que parou.
+        rule.onNodeWithText("relatorio.pdf").performClick()
+        waitFor("reaberto na página 3", 20_000) { vm.hasDocument && vm.busy == null && vm.current == 2 && exists("3 / 3") }
+        waitFor("página 3 desenhada", 15_000) { vm.pageBitmaps.containsKey(2) }
+
+        // O arquivo original sumiu (ex.: veio do WhatsApp): reabre pela cópia guardada.
+        pressBack()
+        waitFor("de volta à lista") { !vm.hasDocument && exists("relatorio.pdf") }
+        File(ctx.cacheDir, "relatorio.pdf").delete()
+        rule.onNodeWithText("relatorio.pdf").performClick()
+        waitFor("reaberto pela cópia", 20_000) { vm.hasDocument && vm.pageCount == 3 && vm.busy == null }
+        assertEquals(1, vm.recents.size)
+        pressBack()
+        waitFor("lista de novo") { !vm.hasDocument && exists("relatorio.pdf") }
+
+        // A aba Favoritos começa vazia.
+        rule.onNodeWithText("Favoritos").performClick()
+        waitFor("aba Favoritos vazia") { exists("Nenhum favorito ainda", substring = true) && !exists("relatorio.pdf") }
+        rule.onNodeWithText("Recentes").performClick()
+        waitFor("aba Recentes") { exists("relatorio.pdf") }
+
+        // Favoritar pelo menu ⋮ e ver na aba Favoritos.
+        rule.onNodeWithContentDescription("Opções de relatorio.pdf").performClick()
+        rule.onNodeWithText("Favoritar").performClick()
+        waitFor("favoritado") { vm.recents.single().favorite }
+        rule.onNodeWithText("Favoritos").performClick()
+        waitFor("aba Favoritos com o documento") {
+            exists("relatorio.pdf") && !exists("Nenhum favorito ainda", substring = true)
+        }
+        waitFor("favorito gravado no disco") { RecentStore(ctx).load().singleOrNull()?.favorite == true }
+
+        // "Limpar recentes" mantém os favoritos.
+        rule.runOnUiThread { vm.clearRecents() }
+        rule.waitForIdle()
+        assertEquals(1, vm.recents.size)
+
+        // Remover da lista.
+        rule.onNodeWithText("Recentes").performClick()
+        rule.onNodeWithContentDescription("Opções de relatorio.pdf").performClick()
+        rule.onNodeWithText("Remover da lista").performClick()
+        waitFor("removido da lista") { vm.recents.isEmpty() && !exists("relatorio.pdf") }
+        waitFor("arquivos do item apagados") { !RecentStore(ctx).thumbFile(id).exists() && !RecentStore(ctx).copyFile(id).exists() }
+        rule.onNodeWithText("Os PDFs que você abrir aparecem aqui.").assertIsDisplayed()
     }
 
     @Test

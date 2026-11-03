@@ -149,6 +149,33 @@ class PdfEditor private constructor(
         }
     }
 
+    /**
+     * Miniatura da 1ª página para o histórico. Se ela tiver anotações ainda não
+     * gravadas no documento, usa [saved] (o PDF como acabou de ser salvo) para
+     * que elas apareçam.
+     */
+    fun thumbnail(widthPx: Int, saved: ByteArray? = null): Bitmap {
+        if (saved == null || annotations[key(0)].isNullOrEmpty()) return render(0, widthPx).bitmap
+        val tmp = File(context.cacheDir, "thumb-${System.nanoTime()}.pdf")
+        try {
+            tmp.writeBytes(displayBytes(saved))
+            ParcelFileDescriptor.open(tmp, ParcelFileDescriptor.MODE_READ_ONLY).use { fd ->
+                PdfRenderer(fd).use { r ->
+                    r.openPage(0).use { page ->
+                        val w = widthPx.coerceIn(16, 1024)
+                        val h = (w.toFloat() * page.height / page.width.coerceAtLeast(1)).toInt().coerceIn(16, 4096)
+                        val bmp = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
+                        bmp.eraseColor(Color.WHITE)
+                        page.render(bmp, null, null, PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY)
+                        return bmp
+                    }
+                }
+            }
+        } finally {
+            tmp.delete()
+        }
+    }
+
     /** Renderiza uma página já com as anotações gravadas (para exportar PNG). */
     fun renderFlattened(index: Int, dpi: Int): Bitmap {
         val tmp = File(context.cacheDir, "export-${System.nanoTime()}.pdf")

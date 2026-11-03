@@ -1,6 +1,5 @@
 package com.bertonibr.pdfstudio.ui
 
-import android.app.Activity
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
@@ -137,6 +136,23 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material.icons.filled.Translate
+import androidx.compose.material.icons.filled.PictureAsPdf
+import androidx.compose.material.icons.filled.Star
+import androidx.compose.material.icons.filled.StarBorder
+import androidx.compose.material3.Tab
+import androidx.compose.material3.TabRow
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.produceState
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.text.style.TextAlign
+import com.bertonibr.pdfstudio.model.RecentDoc
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+import java.text.DateFormat
+import java.util.Calendar
+import java.util.Date
+import java.util.Locale
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.ui.draw.scale
 import com.bertonibr.pdfstudio.TranslationState
@@ -199,6 +215,7 @@ fun PdfStudioScreen(vm: PdfStudioViewModel) {
     var textRequest by remember { mutableStateOf<TextRequest?>(null) }
     var confirmDiscard by remember { mutableStateOf<(() -> Unit)?>(null) }
     var confirmDelete by remember { mutableStateOf<Int?>(null) }
+    var confirmClearRecents by remember { mutableStateOf(false) }
     var pendingExtract by remember { mutableStateOf<List<Int>?>(null) }
     var zoom by remember { mutableFloatStateOf(1f) }
 
@@ -319,6 +336,9 @@ fun PdfStudioScreen(vm: PdfStudioViewModel) {
                                 MenuEntry("Nova assinatura...", true, close) { showSignature = true }
                                 MenuEntry("Chave de API do Claude...", true, close) { showApiKey = true }
                                 MenuEntry("Fechar documento", vm.hasDocument, close) { guarded { vm.closeDocument() } }
+                                if (!vm.hasDocument) {
+                                    MenuEntry("Limpar recentes", vm.recents.any { !it.favorite }, close) { confirmClearRecents = true }
+                                }
                                 HorizontalDivider()
                                 DropdownMenuItem(text = { Text("Versão ${appVersion()}") }, enabled = false, onClick = {})
                             }
@@ -371,9 +391,14 @@ fun PdfStudioScreen(vm: PdfStudioViewModel) {
     ) { padding ->
         Box(Modifier.padding(padding).fillMaxSize().background(Color(0xFF5F6368))) {
             if (!vm.hasDocument) {
-                Welcome(
+                HomeScreen(
+                    vm = vm,
                     onOpen = { openPdf.launch(arrayOf("application/pdf")) },
                     onImages = { newFromImages.launch("image/*") },
+                    onOpenRecent = {
+                        zoom = 1f
+                        vm.openRecent(it)
+                    },
                 )
             } else {
                 PdfViewer(
@@ -525,23 +550,41 @@ fun PdfStudioScreen(vm: PdfStudioViewModel) {
         }
     }
 
-    vm.passwordRequest?.let { uri ->
+    if (vm.passwordRequest != null) {
         TextInputDialog(
             title = "PDF protegido",
             label = "Senha",
             singleLine = true,
             password = true,
             confirm = "Abrir",
-            onDismiss = { vm.passwordRequest = null },
-            onConfirm = {
-                vm.passwordRequest = null
-                vm.open(uri, it)
-            },
+            onDismiss = { vm.cancelPassword() },
+            onConfirm = { vm.retryWithPassword(it) },
         )
     }
 
-    BackHandler(enabled = vm.dirty && confirmDiscard == null) {
-        confirmDiscard = { (context as? Activity)?.finish() }
+    if (confirmClearRecents) {
+        AlertDialog(
+            onDismissRequest = { confirmClearRecents = false },
+            title = { Text("Limpar recentes?") },
+            text = { Text("A lista de documentos recentes será apagada (os arquivos não). Os favoritos continuam.") },
+            confirmButton = {
+                TextButton(onClick = {
+                    confirmClearRecents = false
+                    vm.clearRecents()
+                }) { Text("Limpar") }
+            },
+            dismissButton = { TextButton(onClick = { confirmClearRecents = false }) { Text("Cancelar") } },
+        )
+    }
+
+    // Voltar fecha o documento e mostra a lista de recentes (perguntando antes se há alterações).
+    BackHandler(enabled = vm.hasDocument && confirmDiscard == null) {
+        if (vm.dirty) confirmDiscard = { vm.closeDocument() } else vm.closeDocument()
+    }
+    // Registrado por último, tem prioridade: antes fecha a seleção de texto e a tradução.
+    BackHandler(enabled = vm.selection != null || vm.translation != null) {
+        vm.clearSelection()
+        vm.clearTranslation()
     }
 
     vm.extractedText?.let { text ->
@@ -623,26 +666,142 @@ private fun Context.takePermission(uri: Uri) {
 
 // ==================================================================== componentes
 
+/** Tela inicial: abrir/criar PDF e o histórico (abas Recentes e Favoritos). */
 @Composable
-private fun Welcome(onOpen: () -> Unit, onImages: () -> Unit) {
-    Column(
-        Modifier.fillMaxSize().padding(32.dp),
-        verticalArrangement = Arrangement.Center,
-        horizontalAlignment = Alignment.CenterHorizontally,
-    ) {
-        Text("PDF Studio", style = MaterialTheme.typography.headlineMedium, color = Color.White)
-        Spacer(Modifier.height(8.dp))
-        Text(
-            "Leia, anote, assine, organize e resuma PDFs com o Claude.",
-            color = Color.White.copy(alpha = 0.8f),
-        )
-        Spacer(Modifier.height(24.dp))
-        Button(onClick = onOpen) { Text("Abrir PDF") }
-        Spacer(Modifier.height(8.dp))
-        OutlinedButton(onClick = onImages) { Text("Criar PDF a partir de imagens", color = Color.White) }
-        Spacer(Modifier.height(24.dp))
-        Text("Versão ${appVersion()}", color = Color.White.copy(alpha = 0.6f), style = MaterialTheme.typography.bodySmall)
+private fun HomeScreen(
+    vm: PdfStudioViewModel,
+    onOpen: () -> Unit,
+    onImages: () -> Unit,
+    onOpenRecent: (RecentDoc) -> Unit,
+) {
+    var tab by rememberSaveable { mutableIntStateOf(0) }
+    val docs = if (tab == 0) vm.recents else vm.recents.filter { it.favorite }
+    Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
+        Column(Modifier.fillMaxSize()) {
+            Row(
+                Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Button(onClick = onOpen, modifier = Modifier.weight(1f)) {
+                    Icon(Icons.Filled.FolderOpen, null, Modifier.size(18.dp))
+                    Spacer(Modifier.width(6.dp))
+                    Text("Abrir PDF")
+                }
+                OutlinedButton(onClick = onImages, modifier = Modifier.weight(1f)) {
+                    Text("Criar PDF a partir de imagens", textAlign = TextAlign.Center)
+                }
+            }
+            TabRow(selectedTabIndex = tab) {
+                Tab(selected = tab == 0, onClick = { tab = 0 }, text = { Text("Recentes") })
+                Tab(selected = tab == 1, onClick = { tab = 1 }, text = { Text("Favoritos") })
+            }
+            if (docs.isEmpty()) {
+                Box(Modifier.weight(1f).fillMaxWidth().padding(32.dp), contentAlignment = Alignment.Center) {
+                    Text(
+                        if (tab == 0) "Os PDFs que você abrir aparecem aqui."
+                        else "Nenhum favorito ainda. Toque em ⋮ ao lado de um documento e escolha Favoritar.",
+                        textAlign = TextAlign.Center,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            } else {
+                LazyColumn(Modifier.weight(1f).fillMaxWidth().testTag("recentList")) {
+                    items(docs, key = { it.id }) { doc ->
+                        RecentRow(vm, doc, onClick = { onOpenRecent(doc) })
+                    }
+                }
+            }
+            Text(
+                "Versão ${appVersion()}",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.align(Alignment.CenterHorizontally).padding(8.dp),
+            )
+        }
     }
+}
+
+/** Um documento do histórico: miniatura, nome, data, páginas e menu ⋮. */
+@Composable
+private fun RecentRow(vm: PdfStudioViewModel, doc: RecentDoc, onClick: () -> Unit) {
+    var menu by remember { mutableStateOf(false) }
+    val thumb by produceState<ImageBitmap?>(null, doc.id, doc.lastOpened) {
+        value = withContext(Dispatchers.IO) { vm.recentThumb(doc.id) }
+    }
+    val shape = RoundedCornerShape(4.dp)
+    Row(
+        Modifier.fillMaxWidth().clickable(onClick = onClick)
+            .padding(start = 16.dp, top = 8.dp, bottom = 8.dp, end = 4.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Box(
+            Modifier.size(width = 46.dp, height = 60.dp)
+                .background(Color.White, shape)
+                .border(1.dp, MaterialTheme.colorScheme.outlineVariant, shape),
+            contentAlignment = Alignment.Center,
+        ) {
+            val t = thumb
+            if (t != null) {
+                Image(t, null, Modifier.fillMaxSize().padding(1.dp), contentScale = ContentScale.Fit)
+            } else {
+                Icon(Icons.Filled.PictureAsPdf, null, tint = Color(0xFFC62828))
+            }
+        }
+        Spacer(Modifier.width(16.dp))
+        Column(Modifier.weight(1f)) {
+            Text(doc.name, maxLines = 2, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.bodyLarge)
+            Spacer(Modifier.height(2.dp))
+            Text(
+                recentSubtitle(doc),
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+        if (doc.favorite) {
+            Icon(Icons.Filled.Star, "Favorito", tint = Color(0xFFFFB300), modifier = Modifier.size(20.dp))
+        }
+        Box {
+            IconButton(onClick = { menu = true }) { Icon(Icons.Filled.MoreVert, "Opções de ${doc.name}") }
+            DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
+                DropdownMenuItem(
+                    text = { Text(if (doc.favorite) "Remover dos favoritos" else "Favoritar") },
+                    leadingIcon = { Icon(if (doc.favorite) Icons.Filled.StarBorder else Icons.Filled.Star, null) },
+                    onClick = {
+                        menu = false
+                        vm.toggleFavorite(doc.id)
+                    },
+                )
+                DropdownMenuItem(
+                    text = { Text("Remover da lista") },
+                    leadingIcon = { Icon(Icons.Filled.Close, null) },
+                    onClick = {
+                        menu = false
+                        vm.removeRecent(doc.id)
+                    },
+                )
+            }
+        }
+    }
+}
+
+/** Ex.: "PDF • 28 de out. de 2026 • 12 páginas" (ou "hoje, 14:32"). */
+private fun recentSubtitle(doc: RecentDoc): String {
+    val pt = Locale("pt", "BR")
+    val then = Calendar.getInstance().apply { timeInMillis = doc.lastOpened }
+    val day = Calendar.getInstance()
+    fun sameDay() = day.get(Calendar.YEAR) == then.get(Calendar.YEAR) &&
+        day.get(Calendar.DAY_OF_YEAR) == then.get(Calendar.DAY_OF_YEAR)
+    val time = DateFormat.getTimeInstance(DateFormat.SHORT, pt).format(Date(doc.lastOpened))
+    val date = when {
+        sameDay() -> "hoje, $time"
+        day.apply { add(Calendar.DAY_OF_YEAR, -1) }.let { sameDay() } -> "ontem, $time"
+        else -> DateFormat.getDateInstance(DateFormat.MEDIUM, pt).format(Date(doc.lastOpened))
+    }
+    val pages = if (doc.pageCount == 1) "1 página" else "${doc.pageCount} páginas"
+    return "PDF • $date • $pages"
 }
 
 @Composable

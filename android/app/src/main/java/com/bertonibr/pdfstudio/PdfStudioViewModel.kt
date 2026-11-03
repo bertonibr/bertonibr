@@ -3,6 +3,7 @@ package com.bertonibr.pdfstudio
 import android.app.Application
 import android.content.ClipData
 import android.content.ClipboardManager
+import android.content.ContentResolver
 import android.os.Build
 import android.content.Context
 import android.content.Intent
@@ -26,6 +27,8 @@ import com.bertonibr.pdfstudio.model.Annotation
 import com.bertonibr.pdfstudio.model.Glyph
 import com.bertonibr.pdfstudio.model.TextLayout
 import com.bertonibr.pdfstudio.model.PdfEditor
+import com.bertonibr.pdfstudio.model.RecentDoc
+import com.bertonibr.pdfstudio.model.RecentStore
 import com.bertonibr.pdfstudio.service.ClaudeService
 import com.bertonibr.pdfstudio.service.MlKitTranslator
 import com.bertonibr.pdfstudio.service.Speech
@@ -36,10 +39,12 @@ import com.tom_roush.pdfbox.android.PDFBoxResourceLoader
 import com.tom_roush.pdfbox.pdmodel.encryption.InvalidPasswordException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.asCoroutineDispatcher
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.ByteArrayOutputStream
 import java.io.File
+import java.io.FileOutputStream
 import java.util.concurrent.Executors
 import kotlin.math.max
 
@@ -120,8 +125,23 @@ class PdfStudioViewModel(app: Application) : AndroidViewModel(app) {
     var selectionPage by mutableIntStateOf(0); private set
     private var glyphCache: Triple<Int, Int, List<Glyph>>? = null // (versão, página, glifos) — só na thread do PDF
 
-    /** PDF que pediu senha (a tela mostra o diálogo de senha). */
-    var passwordRequest by mutableStateOf<Uri?>(null)
+    /** Nome do PDF que pediu senha (a tela mostra o diálogo de senha). */
+    var passwordRequest by mutableStateOf<String?>(null); private set
+
+    /** PDF esperando a senha (só na thread do PDF). */
+    private class PendingOpen(val bytes: ByteArray, val name: String, val uri: Uri?, val recentId: String?)
+    private var pendingOpen: PendingOpen? = null
+
+    // ------------------------------------------------------------ histórico (estado)
+    private val recentStore = RecentStore(app)
+
+    /** Documentos abertos recentemente, do mais novo para o mais antigo (tela inicial). */
+    var recents by mutableStateOf(recentStore.load()); private set
+
+    /** Item do histórico do documento aberto (null: documento novo, ainda não salvo). */
+    private var openRecentId: String? = null
+    private var persistJob: Job? = null
+    private var recentsDirty = false
 
     // ------------------------------------------------------------ tradução (estado)
     private var translatorImpl: TextTranslator? = null
@@ -196,18 +216,72 @@ class PdfStudioViewModel(app: Application) : AndroidViewModel(app) {
     // ------------------------------------------------------------ documento
 
     fun open(uri: Uri, password: String? = null) = run("Abrindo...") {
-        val bytes = readBytes(uri)
-        val name = displayName(uri)
+        openBytes(readBytes(uri), displayName(uri), uri, password, null)
+    }
+
+    /** Reabre um documento do histórico: do arquivo original ou, se ele sumiu, da cópia guardada. */
+    fun openRecent(doc: RecentDoc) = run("Abrindo...") {
+        val uri = doc.uri?.let(Uri::parse)
+        val original = uri?.let { u ->
+            try {
+                readBytes(u)
+            } catch (e: Exception) {
+                null // arquivo apagado/movido ou permissão perdida
+            }
+        }
+        val bytes = original ?: recentStore.copyFile(doc.id).takeIf { it.exists() }?.readBytes()
+        if (bytes == null) {
+            ui { message = "Não foi possível abrir \"${doc.name}\": o arquivo foi movido ou apagado." }
+            return@run
+        }
+        val name = if (original != null && uri != null) {
+            try {
+                displayName(uri)
+            } catch (e: Exception) {
+                doc.name
+            }
+        } else {
+            doc.name
+        }
+        openBytes(bytes, name, uri, null, doc.id)
+    }
+
+    /** Abre o PDF (na thread do PDF); se pedir senha, guarda tudo e mostra o diálogo. */
+    private suspend fun openBytes(bytes: ByteArray, name: String, uri: Uri?, password: String?, recentId: String?) {
         val e = try {
             PdfEditor.open(ctx, bytes, password)
         } catch (ex: InvalidPasswordException) {
+            pendingOpen = PendingOpen(bytes, name, uri, recentId)
             ui {
-                passwordRequest = uri
+                passwordRequest = name
                 message = if (password == null) "Este PDF é protegido por senha." else "Senha incorreta."
             }
-            return@run
+            return
         }
-        setEditor(e, name, uri)
+        pendingOpen = null
+        // Continua de onde o usuário parou na última vez que abriu este documento.
+        val persisted = keepsAccess(uri)
+        var startPage = 0
+        ui {
+            leaveDocument()
+            startPage = findRecent(recentId, uri, persisted, name, bytes.size.toLong())?.lastPage ?: 0
+        }
+        setEditor(e, name, uri, startPage)
+        recordRecent(e, name, uri, bytes, recentId, saved = false)
+    }
+
+    /** Tenta de novo abrir o PDF protegido, agora com a senha digitada. */
+    fun retryWithPassword(password: String) {
+        passwordRequest = null
+        run("Abrindo...") {
+            val p = pendingOpen ?: return@run
+            openBytes(p.bytes, p.name, p.uri, password, p.recentId)
+        }
+    }
+
+    fun cancelPassword() {
+        passwordRequest = null
+        run(null) { pendingOpen = null }
     }
 
     fun createFromImages(uris: List<Uri>) {
@@ -218,10 +292,12 @@ class PdfStudioViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
-    private suspend fun setEditor(e: PdfEditor, name: String, uri: Uri?) {
+    private suspend fun setEditor(e: PdfEditor, name: String, uri: Uri?, startPage: Int = 0) {
         editor?.close()
         editor = e
         ui {
+            leaveDocument()
+            clearTranslation()
             hasDocument = true
             docName = name
             docUri = uri
@@ -233,22 +309,35 @@ class PdfStudioViewModel(app: Application) : AndroidViewModel(app) {
             scrollRequest = 0
         }
         structureChanged()
+        if (startPage > 0) {
+            ui {
+                if (startPage < pageCount) {
+                    goTo(startPage)
+                    message = "Continuando de onde você parou (página ${startPage + 1})."
+                }
+            }
+        }
     }
 
-    fun closeDocument() = run(null) {
-        editor?.close()
-        editor = null
-        ui {
-            hasDocument = false
-            selection = null
-            docName = "PDF Studio"
-            docUri = null
-            pageBitmaps.clear()
-            annotationsByPage.clear()
-            pageSizes = emptyList()
-            pageCount = 0
-            dirty = false
-            thumbnails.clear()
+    fun closeDocument() {
+        leaveDocument()
+        clearTranslation()
+        run(null) {
+            editor?.close()
+            editor = null
+            ui {
+                hasDocument = false
+                selection = null
+                docName = "PDF Studio"
+                docUri = null
+                pageBitmaps.clear()
+                annotationsByPage.clear()
+                pageSizes = emptyList()
+                pageCount = 0
+                current = 0
+                dirty = false
+                thumbnails.clear()
+            }
         }
     }
 
@@ -285,6 +374,7 @@ class PdfStudioViewModel(app: Application) : AndroidViewModel(app) {
             dirty = false
             message = "Salvo: $name"
         }
+        if (rememberAsCurrent) recordRecent(e, name, uri, bytes, null, saved = true)
     }
 
     /** Salva no próprio arquivo. Retorna false se não houver permissão (usar "Salvar como"). */
@@ -308,6 +398,180 @@ class PdfStudioViewModel(app: Application) : AndroidViewModel(app) {
         ui { onReady(Intent.createChooser(intent, "Compartilhar PDF")) }
     }
 
+    // ------------------------------------------------------------ histórico (Recentes/Favoritos)
+
+    /** O app continua podendo abrir este endereço depois (permissão permanente do seletor de arquivos)? */
+    private fun keepsAccess(uri: Uri?): Boolean =
+        uri != null && uri.scheme == ContentResolver.SCHEME_CONTENT &&
+            ctx.contentResolver.persistedUriPermissions.any { it.uri == uri && it.isReadPermission }
+
+    /** Item do histórico que corresponde ao documento (só na thread principal). */
+    private fun findRecent(id: String?, uri: Uri?, persisted: Boolean, name: String, size: Long): RecentDoc? =
+        id?.let { i -> recents.firstOrNull { it.id == i } }
+            ?: (if (persisted && uri != null) recents.firstOrNull { it.uri == uri.toString() } else null)
+            ?: recents.firstOrNull { it.name == name && it.sizeBytes == size }
+
+    /**
+     * Registra no histórico o documento aberto ou salvo (na thread do PDF):
+     * guarda a miniatura e, se o arquivo não puder ser reaberto depois (ex.:
+     * veio do WhatsApp ou de "Abrir com"), uma cópia privada.
+     */
+    private suspend fun recordRecent(e: PdfEditor, name: String, uri: Uri?, bytes: ByteArray, knownId: String?, saved: Boolean) {
+        val persisted = keepsAccess(uri)
+        val size = bytes.size.toLong()
+        var previous: RecentDoc? = null
+        ui {
+            syncCurrentPage()
+            previous = findRecent(knownId, uri, persisted, name, size)
+        }
+        val id = previous?.id ?: RecentStore.newId()
+
+        val copy = recentStore.copyFile(id)
+        val hasCopy = try {
+            if (persisted) {
+                copy.delete()
+                false
+            } else {
+                if (copy.length() != size) copy.writeBytes(bytes)
+                true
+            }
+        } catch (ex: Exception) {
+            copy.delete() // sem espaço, por exemplo: segue sem cópia
+            false
+        }
+        try {
+            val thumb = e.thumbnail(RecentStore.THUMB_WIDTH, if (saved) bytes else null)
+            FileOutputStream(recentStore.thumbFile(id)).use { thumb.compress(Bitmap.CompressFormat.PNG, 100, it) }
+        } catch (ex: Exception) {
+            // sem miniatura: a lista mostra um ícone no lugar
+        }
+
+        var stale: List<File> = emptyList()
+        ui {
+            val prev = previous
+            val entry = RecentDoc(
+                id = id,
+                uri = uri?.toString(),
+                name = name,
+                lastOpened = System.currentTimeMillis(),
+                pageCount = e.pageCount,
+                lastPage = if (saved) current else prev?.lastPage ?: 0,
+                favorite = prev?.favorite ?: false,
+                hasCopy = hasCopy,
+                sizeBytes = size,
+            )
+            val (kept, files) = trimRecents(listOf(entry) + recents.filter { it.id != id })
+            recents = kept
+            stale = files
+            openRecentId = id
+            persistRecents()
+        }
+        stale.forEach { it.delete() }
+    }
+
+    /**
+     * Limita o histórico a [RecentStore.MAX_RECENTS] documentos (os favoritos não
+     * contam) e as cópias guardadas a [RecentStore.MAX_COPY_BYTES]. Retorna a
+     * lista que fica e os arquivos a apagar.
+     */
+    private fun trimRecents(list: List<RecentDoc>): Pair<List<RecentDoc>, List<File>> {
+        val kept = ArrayList<RecentDoc>()
+        val delete = ArrayList<File>()
+        var others = 0
+        var copyBytes = 0L
+        for (d in list) {
+            if (!d.favorite && others >= RecentStore.MAX_RECENTS) {
+                delete += recentStore.copyFile(d.id)
+                delete += recentStore.thumbFile(d.id)
+                continue
+            }
+            if (!d.favorite) others++
+            var doc = d
+            if (d.hasCopy) {
+                copyBytes += d.sizeBytes
+                if (copyBytes > RecentStore.MAX_COPY_BYTES && !d.favorite && d.id != openRecentId && kept.isNotEmpty()) {
+                    copyBytes -= d.sizeBytes
+                    delete += recentStore.copyFile(d.id)
+                    doc = d.copy(hasCopy = false)
+                }
+            }
+            kept += doc
+        }
+        return kept to delete
+    }
+
+    /** Anota no histórico a página em que o usuário está. Retorna true se mudou algo. */
+    private fun syncCurrentPage(): Boolean {
+        val id = openRecentId ?: return false
+        if (!hasDocument) return false
+        val i = recents.indexOfFirst { it.id == id }
+        if (i < 0 || recents[i].lastPage == current) return false
+        recents = recents.toMutableList().also { it[i] = it[i].copy(lastPage = current) }
+        return true
+    }
+
+    /** Antes de fechar ou trocar de documento: guarda a página em que ele parou. */
+    private fun leaveDocument() {
+        if (openRecentId == null) return
+        syncCurrentPage()
+        openRecentId = null
+        persistRecents()
+    }
+
+    /** Mudou de página: grava no histórico (alguns segundos depois de parar de rolar). */
+    private fun rememberPage() {
+        if (openRecentId != null) persistRecents(1500)
+    }
+
+    /** Grava o histórico no disco, juntando mudanças seguidas (depois de [delayMs]). */
+    private fun persistRecents(delayMs: Long = 0) {
+        recentsDirty = true
+        persistJob?.cancel()
+        persistJob = viewModelScope.launch {
+            if (delayMs > 0) delay(delayMs)
+            syncCurrentPage()
+            val snapshot = recents
+            recentsDirty = false
+            try {
+                withContext(pdf) { recentStore.save(snapshot) }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                recentsDirty = true // ex.: sem espaço; tenta de novo na próxima mudança
+            }
+        }
+    }
+
+    fun toggleFavorite(id: String) {
+        recents = recents.map { if (it.id == id) it.copy(favorite = !it.favorite) else it }
+        persistRecents()
+    }
+
+    /** Tira o documento da lista (o arquivo original não é apagado). */
+    fun removeRecent(id: String) {
+        recents = recents.filter { it.id != id }
+        if (openRecentId == id) openRecentId = null
+        persistRecents()
+        run(null) { recentStore.deleteFiles(id) }
+    }
+
+    /** Limpa o histórico; os favoritos ficam, a não ser que [includeFavorites]. */
+    fun clearRecents(includeFavorites: Boolean = false) {
+        val (gone, keep) = recents.partition { includeFavorites || !it.favorite }
+        recents = keep
+        if (gone.any { it.id == openRecentId }) openRecentId = null
+        persistRecents()
+        run(null) { gone.forEach { recentStore.deleteFiles(it.id) } }
+    }
+
+    /** Miniatura guardada de um item do histórico (lê o disco: chame fora da thread principal). */
+    fun recentThumb(id: String): ImageBitmap? = try {
+        val f = recentStore.thumbFile(id)
+        if (f.exists()) BitmapFactory.decodeFile(f.path)?.asImageBitmap() else null
+    } catch (e: Exception) {
+        null
+    }
+
     // ------------------------------------------------------------ navegação e renderização
 
     /** Rola até a página (setas, busca, painel de páginas). */
@@ -315,11 +579,15 @@ class PdfStudioViewModel(app: Application) : AndroidViewModel(app) {
         if (!hasDocument || index !in 0 until pageCount) return
         current = index
         scrollRequest = index
+        rememberPage()
     }
 
     /** A tela avisa qual página está visível enquanto o usuário rola. */
     fun onVisiblePage(index: Int) {
-        if (hasDocument && index in 0 until pageCount) current = index
+        if (hasDocument && index in 0 until pageCount && index != current) {
+            current = index
+            rememberPage()
+        }
     }
 
     /**
@@ -688,10 +956,21 @@ class PdfStudioViewModel(app: Application) : AndroidViewModel(app) {
     override fun onCleared() {
         speech.shutdown()
         translatorImpl?.close()
+        // Última gravação do histórico (a página em que parou), se ficou algo pendente.
+        val pending = syncCurrentPage() || recentsDirty
+        val snapshot = recents
         val e = editor
         editor = null
         // Fecha na própria thread do PDF, depois de qualquer tarefa em andamento.
-        pdf.executor.execute { e?.close() }
+        pdf.executor.execute {
+            if (pending) {
+                try {
+                    recentStore.save(snapshot)
+                } catch (ex: Exception) {
+                }
+            }
+            e?.close()
+        }
         pdf.close()
     }
 }
