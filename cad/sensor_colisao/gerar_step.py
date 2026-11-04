@@ -36,7 +36,8 @@ def cyl(r, z0, z1):
 body = cyl(R_BODY, Z_BODY0, Z_BODY1).edges(">Z or <Z").chamfer(0.8)
 for z0, z1, r in TOP:
     body = body.union(cyl(r, z0, z1))
-body = body.union(cyl(R_NECK, 0, Z_NECK1)).union(cyl(R_LIP, Z_NECK1, Z_LIP1))
+body = body.union(cyl(R_LIP, Z_NECK1, Z_LIP1))
+neck = cyl(R_NECK, 0, Z_NECK1).edges("<Z").chamfer(0.5)  # pescoco anodizado mais escuro
 body = body.union(cyl(R_NECK + 3, Z_LIP1, Z_BODY0))  # cubo interno sob o anel
 
 # linha de particao do corpo
@@ -44,7 +45,8 @@ groove = cyl(R_BODY + 1, 63.0, 63.4).cut(cyl(R_BODY - 0.4, 63.0, 63.4))
 body = body.cut(groove)
 
 # faceta lateral +X com chanfro superior (alojamento do botao/conector)
-flat = (cq.Workplane("XY").box(20, 80, Z_BODY1 - Z_BODY0 + 2, centered=(False, True, False))
+# faceta plana ate Z62 (acima disso o chanfro); nao invade os degraus do topo
+flat = (cq.Workplane("XY").box(20, 80, 62.0 - (Z_BODY0 + 1.5), centered=(False, True, False))
         .translate((X_FLAT, 0, Z_BODY0 + 1.5)))
 body = body.cut(flat)
 # chanfro: plano inclinado do topo da faceta ate o ombro superior
@@ -95,7 +97,7 @@ for i in range(N_FLUTES):
 
 # ---------------- display (vidro escuro) ----------------
 screen = (cq.Workplane("XZ").center(0, WIN_ZC).rect(WIN_W - 0.2, WIN_H - 0.2).extrude(1.0)
-          .edges("|Y").fillet(2.4).translate((0, -31.0 + 1.0, 0)))
+          .edges("|Y").fillet(2.4).translate((0, -31.0, 0)))  # apoiado no fundo da janela (y -31..-32)
 
 # ---------------- parafusos da tampa (cabeca abaulada sextavado interno) ----------------
 screws = None
@@ -129,14 +131,31 @@ pins = pins.pushPoints(pin_pts).circle(0.4).extrude(3.5)
 insert = cq.Workplane("YZ").workplane(offset=X_FLAT + 6.0).center(0, M8_ZC).circle(3.0).extrude(0.5)
 
 # ---------------- montagem ----------------
+# cores amostradas das fotos (mediana de pixels em areas iluminadas, RGB 0-255)
+# e conferidas com a imagem de catalogo do produto (luz de estudio, corpo mais claro)
+def rgb(r, g, b):
+    return cq.Color(r / 255, g / 255, b / 255)
+
+
+COR_CORPO = rgb(146, 144, 140)    # cinza titanio anodizado fosco, levemente quente
+COR_PESCOCO = rgb(78, 79, 88)      # anodizado mais escuro, reflexo azulado
+COR_ANEL = rgb(20, 20, 22)         # preto anodizado brilhante
+COR_DISPLAY = rgb(10, 10, 14)      # vidro do OLED desligado
+COR_INOX = rgb(196, 195, 193)      # botao e parafusos inox escovado
+COR_NIQUEL = rgb(172, 169, 165)    # corpo do conector M8 niquelado
+COR_PINOS = rgb(212, 172, 72)      # pinos dourados
+COR_ISOLANTE = rgb(15, 15, 15)     # isolante preto do M8
+
 asm = cq.Assembly(name="sensor_colisao")
-asm.add(body, name="corpo", color=cq.Color(0.42, 0.43, 0.45))
-asm.add(ring, name="anel_trava", color=cq.Color(0.05, 0.05, 0.05))
-asm.add(screen, name="display", color=cq.Color(0.08, 0.08, 0.12))
-asm.add(screws, name="parafusos_tampa", color=cq.Color(0.75, 0.75, 0.77))
-asm.add(button, name="botao", color=cq.Color(0.82, 0.82, 0.84))
-asm.add(m8, name="conector_M8", color=cq.Color(0.80, 0.80, 0.82))
-asm.add(insert.union(pins), name="m8_insert", color=cq.Color(0.1, 0.1, 0.1))
+asm.add(body, name="corpo", color=COR_CORPO)
+asm.add(neck, name="pescoco", color=COR_PESCOCO)
+asm.add(ring, name="anel_trava", color=COR_ANEL)
+asm.add(screen, name="display", color=COR_DISPLAY)
+asm.add(screws, name="parafusos_tampa", color=COR_INOX)
+asm.add(button, name="botao", color=COR_INOX)
+asm.add(m8, name="conector_M8", color=COR_NIQUEL)
+asm.add(insert, name="m8_isolante", color=COR_ISOLANTE)
+asm.add(pins, name="m8_pinos", color=COR_PINOS)
 
 if __name__ == "__main__":
     import os
