@@ -92,6 +92,7 @@ function showMenu(anchor, items) {
   m.innerHTML = '';
   for (const it of items) {
     if (it === '-') { const d = document.createElement('div'); d.className = 'menu-sep'; m.appendChild(d); continue; }
+    if (it.info) { const d = document.createElement('div'); d.className = 'menu-info'; d.innerHTML = it.info; m.appendChild(d); continue; }
     const b = document.createElement('button');
     if (it.danger) b.className = 'danger';
     b.innerHTML = `<span class="check">${it.checked ? '✓' : ''}</span>${it.label}`;
@@ -127,7 +128,12 @@ async function showLibrary() {
   closeEditor();
   $('#editor').hidden = true;
   $('#library').hidden = false;
-  const list = (await DB.all('notebooks')).sort((a, b) => b.updated - a.updated);
+  await renderLibrary();
+  window.dispatchEvent(new Event('caderno:library'));
+}
+
+async function renderLibrary() {
+  const list = (await DB.all('notebooks')).filter((n) => !n.deleted).sort((a, b) => b.updated - a.updated);
   const grid = $('#grid');
   grid.innerHTML = '';
   $('#emptyMsg').hidden = list.length > 0;
@@ -148,7 +154,7 @@ async function showLibrary() {
       { label: 'Abrir', action: () => openNotebook(nb.id) },
       { label: 'Renomear', action: async () => {
         const n = prompt('Nome do caderno', nb.name);
-        if (n && n.trim()) { nb.name = n.trim(); nb.updated = Date.now(); await DB.put('notebooks', nb); showLibrary(); }
+        if (n && n.trim()) { nb.name = n.trim(); nb.updated = Date.now(); await DB.put('notebooks', nb); Sync.schedule(); renderLibrary(); }
       } },
       { label: 'Exportar PDF', action: async () => { await openNotebook(nb.id); exportPdf(); } },
       '-',
@@ -162,12 +168,19 @@ async function showLibrary() {
 }
 
 async function deleteNotebook(nb) {
+  const imgIds = [];
   for (const pid of nb.pageIds) {
     const p = await DB.get('pages', pid);
-    if (p && p.bgId) await DB.del('images', p.bgId);
+    if (p && p.bgId) { imgIds.push(p.bgId); await DB.del('images', p.bgId); }
     await DB.del('pages', pid);
   }
-  await DB.del('notebooks', nb.id);
+  if (nb.syncedAt) {
+    // marca de exclusão para os outros aparelhos
+    await DB.put('notebooks', { id: nb.id, name: nb.name, deleted: true, updated: Date.now(), syncedAt: nb.syncedAt, pageIds: [], imgIds });
+    Sync.schedule(500);
+  } else {
+    await DB.del('notebooks', nb.id);
+  }
 }
 
 function newPage(template) {
@@ -179,6 +192,7 @@ async function createNotebook(name, color, template, pages) {
   const nb = { id: uid(), name: name || 'Sem título', color, template, pageIds: ps.map((p) => p.id), created: Date.now(), updated: Date.now() };
   for (const p of ps) await DB.put('pages', p);
   await DB.put('notebooks', nb);
+  Sync.schedule();
   return nb;
 }
 
@@ -298,6 +312,22 @@ async function openNotebook(id) {
   $('#nbTitle').textContent = nb.name;
   buildPages();
   scroller.scrollTo(0, 0);
+  updateUndoButtons();
+  updatePageInd();
+}
+
+/* Recarrega o caderno aberto (após receber versão do Drive), mantendo a posição */
+async function reloadOpenNotebook() {
+  if (!S.nb) return;
+  const nb = await DB.get('notebooks', S.nb.id);
+  if (!nb) return;
+  const top = scroller.scrollTop, left = scroller.scrollLeft;
+  S.nb = nb;
+  S.pages = (await Promise.all(nb.pageIds.map((pid) => DB.get('pages', pid)))).filter(Boolean);
+  S.undo = []; S.redo = [];
+  $('#nbTitle').textContent = nb.name;
+  buildPages();
+  scroller.scrollTop = top; scroller.scrollLeft = left;
   updateUndoButtons();
   updatePageInd();
 }
@@ -514,7 +544,7 @@ function onPointerDown(e) {
     eraseAt(pt);
   } else {
     const tool = prefs.tool;
-    const stroke = { tool, color: prefs.color[tool], size: SIZES[tool][prefs.size[tool]], pts: [pt.x, pt.y, pt.p] };
+    const stroke = { id: Math.random().toString(36).slice(2, 10), tool, color: prefs.color[tool], size: SIZES[tool][prefs.size[tool]], pts: [pt.x, pt.y, pt.p] };
     cur = { id: e.pointerId, type: e.pointerType, v, stroke, before, last: pt };
   }
   scheduleLive();
@@ -651,6 +681,7 @@ async function flushSave() {
   S.nb.pageIds = S.pages.map((p) => p.id);
   S.nb.updated = Date.now();
   await DB.put('notebooks', S.nb);
+  Sync.schedule();
 }
 document.addEventListener('visibilitychange', () => { if (document.hidden) flushSave(); });
 window.addEventListener('pagehide', () => flushSave());
@@ -893,6 +924,7 @@ function bindUI() {
   };
 
   $('#btnBack').onclick = showLibrary;
+  document.querySelectorAll('.sync-btn').forEach((b) => (b.onclick = (e) => Sync.menu(e.currentTarget)));
   $('#nbTitle').onclick = () => {
     const n = prompt('Nome do caderno', S.nb.name);
     if (n && n.trim()) { S.nb.name = n.trim(); $('#nbTitle').textContent = S.nb.name; markDirty(); }
@@ -958,6 +990,7 @@ function bindUI() {
    INÍCIO
    ========================================================= */
 (async function init() {
+  const returnNb = Sync.handleRedirect();
   bindUI();
   setPenOnly(prefs.penOnly === true, false);
   renderToolbar();
@@ -970,6 +1003,15 @@ function bindUI() {
   if (navigator.storage && navigator.storage.persist) navigator.storage.persist().catch(() => {});
   if ('serviceWorker' in navigator && location.protocol !== 'file:') {
     navigator.serviceWorker.register('sw.js').catch(() => {});
+    // nova versão instalada: recarrega se estiver na biblioteca
+    let reloading = false;
+    navigator.serviceWorker.addEventListener('controllerchange', () => {
+      if (reloading) return;
+      const go = () => { if (!reloading) { reloading = true; location.reload(); } };
+      if (!S.nb) go(); else window.addEventListener('caderno:library', go, { once: true });
+    });
   }
-  showLibrary();
+  if (Sync.start()) return; // renovando acesso ao Google
+  if (returnNb && (await DB.get('notebooks', returnNb))) await openNotebook(returnNb);
+  else await showLibrary();
 })();

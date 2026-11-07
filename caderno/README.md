@@ -14,6 +14,16 @@ App web instalável para escrever com Apple Pencil, no estilo de um caderno digi
 - **Exportar PDF** (compartilha pela folha do iPad)
 - Funciona **offline**; tudo fica salvo no próprio iPad (IndexedDB)
 
+## Sincronização com Google Drive
+Os cadernos são salvos numa pasta oculta do app no seu Drive (escopo `drive.appdata`:
+o app só vê os próprios arquivos). Sincroniza ao abrir, alguns segundos após editar e
+a cada minuto; se dois aparelhos editarem o mesmo caderno, os traços são juntados.
+
+Configuração (uma vez): crie um **ID do cliente OAuth** do tipo *Aplicativo da Web* no
+Google Cloud Console, com a Google Drive API ativada,
+origem `https://bertonibr.github.io` e URI de redirecionamento
+`https://bertonibr.github.io/bertonibr/caderno/`, e coloque o ID em `config.js`.
+
 ## Instalar no iPad
 1. Publique a pasta (ex.: GitHub Pages) e abra o link no **Safari**.
 2. Toque em **Compartilhar → Adicionar à Tela de Início**.

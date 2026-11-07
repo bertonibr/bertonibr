@@ -136,6 +136,22 @@ input[type=text] { -webkit-user-select: text; user-select: text; }
 .menu button.danger { color: #dc2626; }
 .menu .menu-sep { height: 1px; background: var(--line); margin: 4px 6px; }
 .menu .check { width: 16px; color: var(--accent); }
+.menu .menu-info { padding: 8px 12px; font-size: 13px; color: var(--muted); max-width: 280px; }
+
+/* Botão de sincronização */
+.sync-btn { position: relative; }
+.sync-btn::after {
+  content: ""; position: absolute; right: 7px; bottom: 8px; width: 9px; height: 9px;
+  border-radius: 50%; border: 2px solid var(--panel); display: none;
+}
+.lib-header .sync-btn { background: var(--panel); border: 1px solid var(--line); }
+.sync-btn[data-state="off"] { opacity: .55; }
+.sync-btn[data-state="ok"]::after { display: block; background: #22a55a; }
+.sync-btn[data-state="err"]::after { display: block; background: #dc2626; }
+.sync-btn[data-state="login"]::after { display: block; background: #f59e0b; }
+.sync-btn[data-state="offline"]::after { display: block; background: #9ca3af; }
+.sync-btn[data-state="busy"] svg { animation: pulse 1s ease-in-out infinite; }
+@keyframes pulse { 50% { opacity: .3; } }
 
 dialog { border: none; border-radius: 16px; padding: 0; background: var(--panel); color: var(--text); box-shadow: var(--shadow); width: min(420px, calc(100vw - 32px)); }
 dialog::backdrop { background: rgba(0,0,0,.35); }
