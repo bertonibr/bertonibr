@@ -171,7 +171,7 @@ async function deleteNotebook(nb) {
   const imgIds = [];
   for (const pid of nb.pageIds) {
     const p = await DB.get('pages', pid);
-    if (p && p.bgId) { imgIds.push(p.bgId); await DB.del('images', p.bgId); }
+    if (p) for (const id of pageImgIds(p)) { imgIds.push(id); await DB.del('images', id); }
     await DB.del('pages', pid);
   }
   if (nb.syncedAt) {
@@ -184,7 +184,12 @@ async function deleteNotebook(nb) {
 }
 
 function newPage(template) {
-  return { id: uid(), h: A4_H, template: template || 'lined', strokes: [], bgId: null };
+  return { id: uid(), h: A4_H, template: template || 'lined', strokes: [], images: [], bgId: null };
+}
+
+// ids de todas as imagens usadas por uma página (fundo + fotos)
+function pageImgIds(p) {
+  return [p.bgId, ...(p.images || []).map((o) => o.imgId)].filter(Boolean);
 }
 
 async function createNotebook(name, color, template, pages) {
@@ -333,6 +338,7 @@ async function reloadOpenNotebook() {
 }
 
 function closeEditor() {
+  deselect();
   for (const v of S.views.values()) detach(v);
   S.views.clear();
   pagesEl.innerHTML = '';
@@ -385,16 +391,21 @@ function canvasScale(v) {
 function attach(v) {
   if (v.attached) return;
   v.bg = document.createElement('canvas');
+  v.imgs = document.createElement('div');
+  v.imgs.className = 'imgs';
   v.ink = document.createElement('canvas');
-  v.el.prepend(v.ink); v.el.prepend(v.bg);
+  v.el.prepend(v.ink); v.el.prepend(v.imgs); v.el.prepend(v.bg);
   v.attached = true;
   renderView(v);
+  renderImages(v);
 }
 
 function detach(v) {
   if (!v.attached) return;
+  if (sel && sel.v === v) deselect();
   for (const c of [v.bg, v.ink]) { c.width = c.height = 0; c.remove(); }
-  v.bg = v.ink = null;
+  v.imgs.remove();
+  v.bg = v.ink = v.imgs = null;
   v.attached = false;
 }
 
@@ -404,6 +415,237 @@ function renderView(v) {
   for (const c of [v.bg, v.ink]) { if (c.width !== pw) c.width = pw; if (c.height !== ph) c.height = ph; }
   renderBg(v);
   renderInk(v);
+}
+
+/* =========================================================
+   FOTOS NA PÁGINA (mover, redimensionar, girar)
+   Cada foto: { id, imgId, cx, cy, w, h, rot } em unidades lógicas
+   (centro, tamanho e rotação em radianos).
+   ========================================================= */
+let sel = null;   // { v, obj, el } foto selecionada
+let gest = null;  // gesto de mover/redimensionar/girar em andamento
+const MIN_IMG = 30;
+
+function placeEl(el, o, page) {
+  el.style.left = ((o.cx - o.w / 2) / PAGE_W * 100) + '%';
+  el.style.top = ((o.cy - o.h / 2) / page.h * 100) + '%';
+  el.style.width = (o.w / PAGE_W * 100) + '%';
+  el.style.height = (o.h / page.h * 100) + '%';
+  el.style.transform = o.rot ? `rotate(${o.rot}rad)` : '';
+}
+
+function renderImages(v) {
+  if (!v.imgs) return;
+  v.imgs.innerHTML = '';
+  for (const o of v.page.images || []) {
+    const im = document.createElement('img');
+    im.draggable = false;
+    im.alt = '';
+    im.dataset.id = o.id;
+    placeEl(im, o, v.page);
+    getBg(o.imgId).then((src) => { if (src) im.src = src.src; });
+    v.imgs.appendChild(im);
+  }
+  if (sel && sel.v === v) {
+    const still = (v.page.images || []).find((o) => o.id === sel.obj.id);
+    if (still) select(v, still); else deselect();
+  }
+}
+
+function imgEl(v, o) { return v.imgs && v.imgs.querySelector(`img[data-id="${o.id}"]`); }
+
+function hitImage(v, pt) {
+  const list = v.page.images || [];
+  for (let i = list.length - 1; i >= 0; i--) {
+    const o = list[i];
+    const dx = pt.x - o.cx, dy = pt.y - o.cy;
+    const c = Math.cos(-(o.rot || 0)), s = Math.sin(-(o.rot || 0));
+    const lx = dx * c - dy * s, ly = dx * s + dy * c;
+    if (Math.abs(lx) <= o.w / 2 && Math.abs(ly) <= o.h / 2) return o;
+  }
+  return null;
+}
+
+function select(v, o) {
+  if (sel && sel.el) sel.el.remove();
+  const el = document.createElement('div');
+  el.className = 'sel';
+  el.innerHTML = '<div class="rot-line"></div><span class="h" data-h="rot"></span>' +
+    ['nw', 'n', 'ne', 'e', 'se', 's', 'sw', 'w'].map((h) => `<span class="h" data-h="${h}"></span>`).join('');
+  placeEl(el, o, v.page);
+  el.addEventListener('pointerdown', onSelDown);
+  v.el.appendChild(el);
+  sel = { v, obj: o, el };
+  $('#selBar').hidden = false;
+  $('#pageInd').hidden = true;
+}
+
+function deselect() {
+  if (sel && sel.el) sel.el.remove();
+  sel = null;
+  gest = null;
+  $('#selBar').hidden = true;
+  $('#pageInd').hidden = false;
+}
+
+const imgSnapshot = (page) => (page.images || []).map((o) => ({ ...o }));
+
+function startGesture(e, kind) {
+  e.preventDefault();
+  e.stopPropagation();
+  const { v, obj: o } = sel;
+  try { e.currentTarget.setPointerCapture(e.pointerId); } catch (_) {}
+  const p0 = toLogical(v, e);
+  const g = { id: e.pointerId, kind, p0, o0: { ...o }, before: imgSnapshot(v.page), moved: false };
+  if (kind.length <= 2 && kind !== 'rot') {
+    const hx = kind.includes('e') ? 1 : kind.includes('w') ? -1 : 0;
+    const hy = kind.includes('s') ? 1 : kind.includes('n') ? -1 : 0;
+    const c = Math.cos(o.rot || 0), s = Math.sin(o.rot || 0);
+    const ax = -hx * o.w / 2, ay = -hy * o.h / 2; // canto/lado oposto (fixo)
+    g.hx = hx; g.hy = hy;
+    g.anchor = { x: o.cx + ax * c - ay * s, y: o.cy + ax * s + ay * c };
+  }
+  gest = g;
+}
+
+function onSelDown(e) {
+  if (!sel) return;
+  const h = e.target.dataset && e.target.dataset.h;
+  startGesture(e, h || 'move');
+}
+
+function onGestureMove(e) {
+  if (!gest || e.pointerId !== gest.id || !sel) return false;
+  e.preventDefault();
+  const { v, obj: o, el } = sel;
+  const p = toLogical(v, e);
+  const g = gest, o0 = g.o0;
+  if (Math.hypot(p.x - g.p0.x, p.y - g.p0.y) > 1) g.moved = true;
+  if (g.kind === 'move') {
+    o.cx = o0.cx + (p.x - g.p0.x);
+    o.cy = o0.cy + (p.y - g.p0.y);
+  } else if (g.kind === 'rot') {
+    let a = Math.atan2(p.y - o.cy, p.x - o.cx) + Math.PI / 2;
+    const step = Math.PI / 2;
+    const near = Math.round(a / step) * step;
+    if (Math.abs(a - near) < 0.08) a = near; // "gruda" em 0°, 90°, 180°…
+    o.rot = ((a % (2 * Math.PI)) + 2 * Math.PI) % (2 * Math.PI);
+  } else {
+    const c = Math.cos(o.rot || 0), s = Math.sin(o.rot || 0);
+    const dx = p.x - g.anchor.x, dy = p.y - g.anchor.y;
+    const lx = dx * c + dy * s, ly = -dx * s + dy * c; // no referencial da foto
+    let w = o0.w, h = o0.h;
+    if (g.hx && g.hy) {
+      // canto: mantém a proporção
+      const k = (lx * g.hx * o0.w + ly * g.hy * o0.h) / (o0.w * o0.w + o0.h * o0.h);
+      const kmin = MIN_IMG / Math.min(o0.w, o0.h);
+      w = o0.w * Math.max(k, kmin); h = o0.h * Math.max(k, kmin);
+    } else if (g.hx) {
+      w = Math.max(MIN_IMG, lx * g.hx);
+    } else {
+      h = Math.max(MIN_IMG, ly * g.hy);
+    }
+    const ox = g.hx * w / 2, oy = g.hy * h / 2;
+    o.w = w; o.h = h;
+    o.cx = g.anchor.x + ox * c - oy * s;
+    o.cy = g.anchor.y + ox * s + oy * c;
+  }
+  const im = imgEl(v, o);
+  if (im) placeEl(im, o, v.page);
+  placeEl(el, o, v.page);
+  return true;
+}
+
+function onGestureEnd(e) {
+  if (!gest || e.pointerId !== gest.id) return false;
+  const g = gest; gest = null;
+  if (g.moved && sel) commitChange(sel.v.page, g.before, 'images');
+  return true;
+}
+
+function selAction(kind) {
+  if (!sel) return;
+  const { v, obj: o } = sel;
+  const page = v.page;
+  const before = imgSnapshot(page);
+  const list = page.images;
+  const i = list.indexOf(o);
+  if (kind === 'delete') {
+    list.splice(i, 1);
+    deselect();
+  } else if (kind === 'front') {
+    list.splice(i, 1); list.push(o);
+  } else if (kind === 'back') {
+    list.splice(i, 1); list.unshift(o);
+  } else if (kind === 'rotate') {
+    o.rot = (((o.rot || 0) + Math.PI / 2) % (2 * Math.PI));
+  } else if (kind === 'dup') {
+    const c = { ...o, id: uid(), cx: o.cx + 30, cy: o.cy + 30 };
+    list.push(c);
+    commitChange(page, before, 'images');
+    renderImages(v);
+    select(v, c);
+    return;
+  } else if (kind === 'reset') {
+    o.rot = 0;
+  }
+  commitChange(page, before, 'images');
+  renderImages(v);
+}
+
+async function prepareImage(file) {
+  const img = await blobToImage(file);
+  const max = 2000;
+  const k = Math.min(1, max / Math.max(img.naturalWidth, img.naturalHeight));
+  const w = Math.round(img.naturalWidth * k), h = Math.round(img.naturalHeight * k);
+  const c = document.createElement('canvas');
+  c.width = w; c.height = h;
+  const ctx = c.getContext('2d');
+  const png = file.type === 'image/png' || file.type === 'image/gif' || file.type === 'image/webp';
+  if (!png) { ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, w, h); }
+  ctx.drawImage(img, 0, 0, w, h);
+  URL.revokeObjectURL(img.src);
+  const blob = await new Promise((res) => c.toBlob(res, png ? 'image/png' : 'image/jpeg', 0.88));
+  c.width = c.height = 0;
+  return { blob, w, h };
+}
+
+async function insertPhotos(files) {
+  if (!S.nb || !files.length) return;
+  const page = S.pages[currentIndex()];
+  const v = S.views.get(page.id);
+  attach(v);
+  page.images = page.images || [];
+  const before = imgSnapshot(page);
+  // centro da parte visível da página
+  const r = v.el.getBoundingClientRect(), sr = scroller.getBoundingClientRect();
+  const vx = (Math.max(r.left, sr.left) + Math.min(r.right, sr.right)) / 2;
+  const vy = (Math.max(r.top, sr.top) + Math.min(r.bottom, sr.bottom)) / 2;
+  let cx = clamp((vx - r.left) / r.width * PAGE_W, 150, PAGE_W - 150);
+  let cy = clamp((vy - r.top) / r.height * page.h, 150, page.h - 150);
+  let last = null;
+  toast('Inserindo foto…', 0);
+  try {
+    for (const f of files) {
+      const { blob, w, h } = await prepareImage(f);
+      const imgId = uid();
+      await DB.put('images', blob, imgId);
+      let iw = Math.min(520, PAGE_W * 0.6), ih = iw * h / w;
+      if (ih > page.h * 0.6) { ih = page.h * 0.6; iw = ih * w / h; }
+      last = { id: uid(), imgId, cx, cy, w: Math.round(iw), h: Math.round(ih), rot: 0 };
+      page.images.push(last);
+      cx += 30; cy += 30;
+    }
+    $('#toast').hidden = true;
+  } catch (err) {
+    console.error(err);
+    toast('Não foi possível abrir a imagem', 3500);
+  }
+  if (!last) return;
+  commitChange(page, before, 'images');
+  setTool('select');
+  renderImages(v);
+  select(v, last);
 }
 
 function renderBg(v) {
@@ -524,6 +766,18 @@ function toLogical(v, e) {
 
 function onPointerDown(e) {
   if (e.pointerType === 'pen' && prefs.penOnly === null) setPenOnly(true, false);
+  if (prefs.tool === 'select') {
+    // ferramenta de seleção: toque numa foto seleciona e já permite arrastar
+    if (gest || cur || (e.pointerType === 'mouse' && e.button !== 0)) return;
+    const pageEl = e.target.closest('.page');
+    const v = pageEl && S.views.get(pageEl.dataset.id);
+    if (!v) return;
+    const o = hitImage(v, toLogical(v, e));
+    if (!o) { deselect(); return; }
+    select(v, o);
+    if (e.pointerType !== 'touch' || !penOnly()) startGesture(e, 'move');
+    return;
+  }
   if (e.pointerType === 'touch' && (penOnly() || fingerCount > 1)) return;
   if (e.pointerType === 'mouse' && e.button !== 0) return;
   if (cur) return;
@@ -551,6 +805,7 @@ function onPointerDown(e) {
 }
 
 function onPointerMove(e) {
+  if (onGestureMove(e)) return;
   if (!cur || e.pointerId !== cur.id) return;
   e.preventDefault();
   const evs = (e.getCoalescedEvents && e.getCoalescedEvents().length) ? e.getCoalescedEvents() : [e];
@@ -566,6 +821,7 @@ function onPointerMove(e) {
 }
 
 function onPointerUp(e) {
+  if (onGestureEnd(e)) return;
   if (!cur || e.pointerId !== cur.id) return;
   const c = cur; cur = null;
   live.remove();
@@ -633,8 +889,10 @@ function eraseAt(pt) {
 }
 
 /* ---------------- Desfazer / refazer ---------------- */
-function commitChange(page, before) {
-  S.undo.push({ pageId: page.id, before, after: page.strokes.slice() });
+// field: 'strokes' (traços) ou 'images' (fotos — guardadas como cópias)
+function commitChange(page, before, field = 'strokes') {
+  const after = field === 'images' ? imgSnapshot(page) : page.strokes.slice();
+  S.undo.push({ pageId: page.id, field, before, after });
   if (S.undo.length > 200) S.undo.shift();
   S.redo = [];
   markDirty(page);
@@ -646,9 +904,15 @@ function applyHistory(from, to, key) {
   if (!a) return;
   const v = S.views.get(a.pageId);
   if (!v) return;
-  v.page.strokes = a[key].slice();
   to.push(a);
-  renderInk(v);
+  if (a.field === 'images') {
+    v.page.images = a[key].map((o) => ({ ...o }));
+    if (sel && sel.v === v) deselect();
+    renderImages(v);
+  } else {
+    v.page.strokes = a[key].slice();
+    renderInk(v);
+  }
   markDirty(v.page);
   updateUndoButtons();
   v.el.scrollIntoView({ block: 'nearest' });
@@ -722,7 +986,7 @@ async function deleteCurrentPage() {
   S.redo = S.redo.filter((a) => a.pageId !== p.id);
   updateUndoButtons();
   await DB.del('pages', p.id);
-  if (p.bgId) await DB.del('images', p.bgId);
+  for (const id of pageImgIds(p)) await DB.del('images', id);
   buildPages();
   markDirty();
   updatePageInd();
@@ -835,6 +1099,15 @@ async function exportPdf() {
         const img = await getBg(p.bgId);
         if (img) { ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.drawImage(img, 0, 0, W, H); ctx.setTransform(k, 0, 0, k, 0, 0); }
       }
+      for (const o of p.images || []) {
+        const img = await getBg(o.imgId);
+        if (!img) continue;
+        ctx.save();
+        ctx.translate(o.cx, o.cy);
+        if (o.rot) ctx.rotate(o.rot);
+        ctx.drawImage(img, -o.w / 2, -o.h / 2, o.w, o.h);
+        ctx.restore();
+      }
       for (const s of p.strokes) drawStroke(ctx, s);
       const wPt = 595.28, hPt = wPt * p.h / PAGE_W;
       const orient = wPt > hPt ? 'l' : 'p';
@@ -869,6 +1142,8 @@ function renderToolbar() {
   document.querySelectorAll('.tool').forEach((b) => b.classList.toggle('active', b.dataset.tool === prefs.tool));
   const colors = $('#colors');
   colors.innerHTML = '';
+  $('#colors').hidden = $('#sizes').hidden = prefs.tool === 'select';
+  if (prefs.tool === 'select') { $('#sizes').innerHTML = ''; return; }
   if (prefs.tool !== 'eraser') {
     const list = prefs.tool === 'pen' ? PEN_COLORS : HL_COLORS;
     const curColor = prefs.color[prefs.tool];
@@ -901,8 +1176,18 @@ function renderToolbar() {
   });
 }
 
+function setTool(t) {
+  prefs.tool = t;
+  savePrefs();
+  if (t !== 'select') deselect();
+  renderToolbar();
+}
+
 function bindUI() {
   $('#btnNew').onclick = openNewDialog;
+  $('#btnPhoto').onclick = () => $('#filePhoto').click();
+  $('#filePhoto').onchange = (e) => { const fs = [...e.target.files]; e.target.value = ''; insertPhotos(fs); };
+  document.querySelectorAll('#selBar button').forEach((b) => (b.onclick = () => selAction(b.dataset.act)));
   $('#btnImportPdf').onclick = () => $('#filePdf').click();
   $('#filePdf').onchange = async (e) => {
     const f = e.target.files[0]; e.target.value = '';
@@ -929,7 +1214,7 @@ function bindUI() {
     const n = prompt('Nome do caderno', S.nb.name);
     if (n && n.trim()) { S.nb.name = n.trim(); $('#nbTitle').textContent = S.nb.name; markDirty(); }
   };
-  document.querySelectorAll('.tool').forEach((b) => (b.onclick = () => { prefs.tool = b.dataset.tool; savePrefs(); renderToolbar(); }));
+  document.querySelectorAll('.tool').forEach((b) => (b.onclick = () => setTool(b.dataset.tool)));
   $('#btnUndo').onclick = undo;
   $('#btnRedo').onclick = redo;
   $('#btnPenOnly').onclick = () => {
@@ -948,7 +1233,8 @@ function bindUI() {
     ]);
   };
   $('#btnMore').onclick = (e) => showMenu(e.currentTarget, [
-    { label: 'Inserir PDF ou imagem', action: () => $('#fileInsert').click() },
+    { label: 'Inserir foto na página', action: () => $('#filePhoto').click() },
+    { label: 'Inserir PDF ou imagem como páginas', action: () => $('#fileInsert').click() },
     { label: 'Exportar PDF', action: exportPdf },
     '-',
     { label: 'Limpar página', action: () => {
@@ -965,7 +1251,10 @@ function bindUI() {
   pagesEl.addEventListener('pointerdown', onPointerDown);
   window.addEventListener('pointermove', onPointerMove, { passive: false });
   window.addEventListener('pointerup', onPointerUp);
-  window.addEventListener('pointercancel', (e) => { if (cur && e.pointerId === cur.id) cancelStroke(); });
+  window.addEventListener('pointercancel', (e) => {
+    if (onGestureEnd(e)) return;
+    if (cur && e.pointerId === cur.id) cancelStroke();
+  });
   scroller.addEventListener('scroll', () => requestAnimationFrame(updatePageInd), { passive: true });
 
   let rzTimer;
@@ -983,6 +1272,8 @@ function bindUI() {
     const mod = e.metaKey || e.ctrlKey;
     if (mod && e.key.toLowerCase() === 'z') { e.preventDefault(); e.shiftKey ? redo() : undo(); }
     else if (mod && e.key.toLowerCase() === 'y') { e.preventDefault(); redo(); }
+    else if (sel && (e.key === 'Delete' || e.key === 'Backspace')) { e.preventDefault(); selAction('delete'); }
+    else if (sel && e.key === 'Escape') deselect();
   });
 }
 

@@ -188,9 +188,11 @@ const Sync = (() => {
 
   async function fetchImages(pages, byName) {
     for (const p of pages) {
-      if (!p.bgId || (await DB.get('images', p.bgId))) continue;
-      const f = byName.get('img-' + p.bgId);
-      if (f) await DB.put('images', await download(f.id), p.bgId);
+      for (const id of pageImgIds(p)) {
+        if (await DB.get('images', id)) continue;
+        const f = byName.get('img-' + id);
+        if (f) await DB.put('images', await download(f.id), id);
+      }
     }
   }
 
@@ -199,11 +201,12 @@ const Sync = (() => {
     const id = data.nb.id;
     const old = await DB.get('notebooks', id);
     const keep = new Set(data.pages.map((p) => p.id));
+    const used = new Set(data.pages.flatMap(pageImgIds));
     if (old && old.pageIds) {
       for (const pid of old.pageIds) {
         if (keep.has(pid)) continue;
         const p = await DB.get('pages', pid);
-        if (p && p.bgId && !data.pages.some((x) => x.bgId === p.bgId)) await DB.del('images', p.bgId);
+        if (p) for (const id of pageImgIds(p)) if (!used.has(id)) await DB.del('images', id);
         await DB.del('pages', pid);
       }
     }
@@ -219,7 +222,7 @@ const Sync = (() => {
     if (nb && nb.pageIds) {
       for (const pid of nb.pageIds) {
         const p = await DB.get('pages', pid);
-        if (p && p.bgId) await DB.del('images', p.bgId);
+        if (p) for (const id of pageImgIds(p)) await DB.del('images', id);
         await DB.del('pages', pid);
       }
     }
@@ -241,11 +244,13 @@ const Sync = (() => {
     const { nb, pages } = await localFull(L);
     const updated = nb.updated;
     for (const p of pages) {
-      if (!p.bgId || byName.has('img-' + p.bgId)) continue;
-      const blob = await DB.get('images', p.bgId);
-      if (!blob) continue;
-      const id = await upload('img-' + p.bgId, blob, 'image/jpeg', {}, null);
-      byName.set('img-' + p.bgId, { id, name: 'img-' + p.bgId });
+      for (const imgId of pageImgIds(p)) {
+        if (byName.has('img-' + imgId)) continue;
+        const blob = await DB.get('images', imgId);
+        if (!blob) continue;
+        const id = await upload('img-' + imgId, blob, blob.type || 'image/jpeg', {}, null);
+        byName.set('img-' + imgId, { id, name: 'img-' + imgId });
+      }
     }
     const { blob, enc, mime } = await pack({ v: 1, nb: metaOf(nb), pages });
     const fid = await upload('nb-' + nb.id, blob, mime, { updated: String(updated), enc }, f && f.id);
@@ -279,7 +284,9 @@ const Sync = (() => {
       const seen = new Set(lp.strokes.map(strokeKey));
       const strokes = lp.strokes.slice();
       for (const s of rp.strokes) if (!seen.has(strokeKey(s))) strokes.push(s);
-      return { ...lp, strokes };
+      const images = (lp.images || []).slice();
+      for (const o of rp.images || []) if (!images.some((x) => x.id === o.id)) images.push(o);
+      return { ...lp, strokes, images };
     });
     // páginas que só existem no Drive: insere após a página anterior delas
     remote.pages.forEach((rp, i) => {
