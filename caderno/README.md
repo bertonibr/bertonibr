@@ -11,7 +11,7 @@ App web instalável para escrever com Apple Pencil, no estilo de um caderno digi
 - Papéis: branco, pautado, quadriculado, pontilhado
 - Adicionar, limpar e excluir páginas; desfazer/refazer (Ctrl/⌘+Z)
 - **Selecionar escrita (laço)**: contornar com a seta e mover, redimensionar, mudar cor, copiar/colar (outra página), duplicar e excluir
-- **Calcular contas escritas à mão** (offline): contornar a conta com o laço → "= Calcular" → o resultado é escrito ao lado; "Ensinar minha letra" melhora a precisão
+- **Calcular contas escritas à mão** (offline): contornar a conta com o laço → "= Calcular" → o resultado é escrito ao lado. Números são lidos por uma rede neural pequena (`model/digits.bin`, treinada com MNIST + 7 cortado e 1 com chapéu); sinais por regras de forma; "Ensinar minha letra" ajusta à letra do usuário
 - **Fotos na página**: inserir várias, mover, redimensionar (proporcional ou livre), girar, frente/trás, duplicar e excluir — dá para escrever por cima
 - **Importar PDF** ou imagem como páginas e escrever por cima
 - **Exportar PDF** (compartilha pela folha do iPad)

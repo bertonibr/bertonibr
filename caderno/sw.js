@@ -1,9 +1,9 @@
 /* Service worker: funciona offline (cache do app + bibliotecas de PDF). */
-const CACHE = 'caderno-v6';
+const CACHE = 'caderno-v7';
 const SHELL = [
   './', './index.html', './app.js', './sync.js', './math.js', './config.js', './style.css', './manifest.webmanifest',
   './icon-192.png', './icon-512.png', './apple-touch-icon.png',
-  './lib/jspdf.umd.min.js', './lib/pdf.min.js', './lib/pdf.worker.min.js',
+  './lib/jspdf.umd.min.js', './lib/pdf.min.js', './lib/pdf.worker.min.js', './model/digits.bin',
 ];
 
 self.addEventListener('install', (e) => {
