@@ -758,7 +758,11 @@ const MathInk = (() => {
     wrap.innerHTML = `
       <div class="train-box sheet">
         <div class="sheet-head"><h2>Folha de treino</h2><span class="sheet-prog"></span></div>
-        <p>Escreva a conta abaixo do seu jeito normal, na linha, e toque em <b>Aprender e próxima</b>. Treine quantas contas quiser — sempre aparece uma nova.</p>
+        <div class="sheet-tabs">
+          <button data-m="copy" class="active">1 · Copiar a conta</button>
+          <button data-m="guess">2 · Adivinhe o que escrevi</button>
+        </div>
+        <p class="sheet-help"></p>
         <div class="sheet-ex"></div>
         <div class="sheet-pad"><canvas></canvas></div>
         <div class="sheet-msg"></div>
@@ -770,6 +774,8 @@ const MathInk = (() => {
           <button class="btn" data-t="skip">Outra conta</button>
           <button class="btn" data-t="mine">Minha conta…</button>
           <button class="btn" data-t="close">Sair do treino</button>
+          <button class="btn bad" data-t="no" hidden>Errou — corrigir</button>
+          <button class="btn primary good" data-t="yes" hidden>Acertou ✓</button>
           <button class="btn primary" data-t="ok">Aprender e próxima ✓</button>
         </div>
       </div>`;
@@ -777,6 +783,9 @@ const MathInk = (() => {
     const c = wrap.querySelector('canvas');
     const msg = wrap.querySelector('.sheet-msg');
     let strokes = [], cur = null, boxes = null;
+    let mode = 'copy', guessed = null;
+    const score = { ok: 0, tot: 0 };
+    const $w = (q) => wrap.querySelector(q);
     const COLORS = ['#2563eb', '#e8590c', '#2b8a3e', '#c2255c', '#7048e8', '#0c8599'];
 
     const draw = () => {
@@ -806,7 +815,9 @@ const MathInk = (() => {
     const status = () => {
       const k = counts();
       const need = SYMBOLS.filter((x) => k[x] < GOAL);
-      wrap.querySelector('.sheet-prog').textContent = `${done} conta${done === 1 ? '' : 's'} nesta sessão · ${items.length} exemplos aprendidos`;
+      wrap.querySelector('.sheet-prog').textContent = mode === 'guess'
+        ? `Acertos: ${score.ok} de ${score.tot}${score.tot ? ` (${Math.round(100 * score.ok / score.tot)}%)` : ''} · ${items.length} exemplos aprendidos`
+        : `${done} conta${done === 1 ? '' : 's'} nesta sessão · ${items.length} exemplos aprendidos`;
       wrap.querySelector('.sheet-need').innerHTML = need.length
         ? `Ainda precisam de treino: ${need.map((x) => `<span class="chip">${show(x)}</span>`).join('')}`
         : 'Todos os números e sinais já têm bastante exemplos ✓ — continuar treinando ainda ajuda.';
@@ -833,6 +844,7 @@ const MathInk = (() => {
       cur = { id: e.pointerId, s: [[e.clientX - r.left, e.clientY - r.top]] };
       strokes.push(cur.s);
       if (boxes) { boxes = null; say(''); }
+      if (guessed !== null) { guessed = null; guessButtons(false); say(''); } // continuou escrevendo
       draw();
     });
     c.addEventListener('pointermove', (e) => {
@@ -846,7 +858,7 @@ const MathInk = (() => {
     c.addEventListener('pointerup', end);
     c.addEventListener('pointercancel', end);
 
-    wrap.querySelector('[data-t=clear]').onclick = () => { strokes = []; boxes = null; draw(); say(''); };
+    wrap.querySelector('[data-t=clear]').onclick = () => { strokes = []; boxes = null; guessed = null; guessButtons(false); draw(); say(''); };
     wrap.querySelector('[data-t=skip]').onclick = () => { say(''); setExercise(generate()); };
     wrap.querySelector('[data-t=mine]').onclick = () => {
       const t = prompt('Digite a conta que você quer treinar (números, + - x ÷ / = , e parênteses):', '');
@@ -866,11 +878,11 @@ const MathInk = (() => {
       try { localStorage.removeItem(KEY); localStorage.removeItem('caderno.sheetIdx'); } catch (_) {}
       fixed = 0; next(); say('Pronto, voltei ao reconhecimento padrão.');
     };
-    wrap.querySelector('[data-t=ok]').onclick = async () => {
-      if (!strokes.length) { say('Escreva a conta primeiro.'); return; }
-      try { await loadModel(); } catch (e) { say('Não consegui carregar o reconhecedor: ' + e.message, 'bad'); return; }
+    // Aprende a escrita atual sabendo o que ela significa (texto esperado).
+    // Retorna null se não deu para encaixar.
+    const learnFrom = (text) => {
       const objs = strokes.map((s) => ({ pts: s.flatMap(([x, y]) => [x, y, 0.5]) }));
-      const want = [...expectOf(current)];
+      const want = [...expectOf(text)];
       // o app se adapta à escrita: se a separação normal não bate com a conta,
       // encaixa os traços nos símbolos esperados
       const { rows: r1, H: H1 } = segment(objs);
@@ -878,16 +890,13 @@ const MathInk = (() => {
       const direct = row1 && row1.groups.length === want.length;
       const fit = direct ? { groups: row1.groups, H: H1, row: row1 } : alignTo(objs, want.length);
       if (!fit) {
-        const { rows } = segment(objs);
-        const r0 = rows.slice().sort((a, b) => b.groups.length - a.groups.length)[0];
-        boxes = r0 ? r0.groups.map((g) => g.b) : null;
+        boxes = row1 ? row1.groups.map((g) => g.b) : null;
         draw();
-        say(`A conta tem <b>${want.length}</b> símbolos, mas encontrei só <b>${strokes.length}</b> traço${strokes.length === 1 ? '' : 's'}. Parece que dois símbolos foram feitos num traço só — escreva cada um separado.`, 'bad');
-        return;
+        say(`“${show(want.join(''))}” tem <b>${want.length}</b> símbolos, mas encontrei só <b>${strokes.length}</b> traço${strokes.length === 1 ? '' : 's'}. Parece que dois símbolos foram feitos num traço só — escreva cada um separado.`, 'bad');
+        return null;
       }
-      const beforeTxt = row1 ? row1.groups.map((g) => symbolOf(g, H1, row1)).join('') : '';
+      const before = row1 ? row1.groups.map((g) => symbolOf(g, H1, row1)).join('') : '';
       const { groups, H, row } = fit;
-      const before = beforeTxt;
       groups.forEach((g, i) => { items.push({ lab: want[i], st: normGroup(g, H, row) }); learned++; });
       boxes = null;
       // guarda só os exemplos mais recentes de cada símbolo
@@ -898,14 +907,74 @@ const MathInk = (() => {
         if (cnt[l] > MAX_PER) items.splice(i, 1);
       }
       saveItems();
+      return { before, direct, want: want.join('') };
+    };
+
+    const guessButtons = (on) => {
+      $w('[data-t=yes]').hidden = $w('[data-t=no]').hidden = !on;
+      $w('[data-t=ok]').hidden = on;
+    };
+
+    const setMode = (m) => {
+      mode = m; guessed = null;
+      wrap.querySelectorAll('.sheet-tabs button').forEach((b) => b.classList.toggle('active', b.dataset.m === m));
+      $w('[data-t=skip]').hidden = $w('[data-t=mine]').hidden = m === 'guess';
+      $w('[data-t=ok]').textContent = m === 'guess' ? 'Adivinhar' : 'Aprender e próxima ✓';
+      $w('.sheet-help').innerHTML = m === 'guess'
+        ? 'Escreva <b>qualquer número ou conta</b> do seu jeito e toque em <b>Adivinhar</b>. Diga se o app acertou; se errou, diga o que era e ele aprende.'
+        : 'Escreva a conta abaixo do seu jeito normal, na linha, e toque em <b>Aprender e próxima</b>. Treine quantas contas quiser — sempre aparece uma nova.';
+      guessButtons(false);
+      say('');
+      if (m === 'guess') { current = ''; $w('.sheet-ex').textContent = 'Escreva qualquer número ou conta ✍️'; strokes = []; boxes = null; draw(); status(); }
+      else next();
+    };
+    wrap.querySelectorAll('.sheet-tabs button').forEach((b) => (b.onclick = () => setMode(b.dataset.m)));
+
+    const freshPad = () => { strokes = []; boxes = null; guessed = null; guessButtons(false); draw(); status(); };
+
+    wrap.querySelector('[data-t=ok]').onclick = async () => {
+      if (!strokes.length) { say('Escreva primeiro.'); return; }
+      try { await loadModel(); } catch (e) { say('Não consegui carregar o reconhecedor: ' + e.message, 'bad'); return; }
+      if (mode === 'guess') {
+        const objs = strokes.map((s) => ({ pts: s.flatMap(([x, y]) => [x, y, 0.5]) }));
+        const { rows, H } = segment(objs);
+        const row = rows.slice().sort((a, b) => b.groups.length - a.groups.length)[0];
+        guessed = row ? row.groups.map((g) => symbolOf(g, H, row)).join('') : '';
+        say(`Acho que você escreveu: <span class="guess">${show(guessed) || '?'}</span>`);
+        guessButtons(true);
+        return;
+      }
+      const r = learnFrom(current);
+      if (!r) return;
       done++;
-      if (!direct) say(`Antes eu leria <b>${show(before) || '—'}</b>. Me ajustei ao seu jeito de escrever e aprendi <b>${show(want.join(''))}</b> ✓`, 'good');
-      else if (before === want.join('')) say(`Já li certo: <b>${show(before)}</b> ✓ — reforcei mesmo assim.`, 'good');
-      else say(`Antes eu leria <b>${show(before)}</b>. Agora aprendi <b>${show(want.join(''))}</b> ✓`, 'good');
+      if (!r.direct) say(`Antes eu leria <b>${show(r.before) || '—'}</b>. Me ajustei ao seu jeito de escrever e aprendi <b>${show(r.want)}</b> ✓`, 'good');
+      else if (r.before === r.want) say(`Já li certo: <b>${show(r.before)}</b> ✓ — reforcei mesmo assim.`, 'good');
+      else say(`Antes eu leria <b>${show(r.before)}</b>. Agora aprendi <b>${show(r.want)}</b> ✓`, 'good');
       next();
     };
 
-    next();
+    wrap.querySelector('[data-t=yes]').onclick = () => {
+      if (guessed === null) return;
+      score.ok++; score.tot++;
+      learnFrom(guessed); // reforça
+      say(`Oba, acertei <b>${show(guessed)}</b> ✓ Escreva outro.`, 'good');
+      freshPad();
+    };
+    wrap.querySelector('[data-t=no]').onclick = () => {
+      if (guessed === null) return;
+      const t = prompt('O que você escreveu? (números e + − x ÷ / = , ( ))', show(guessed));
+      if (t === null) return;
+      const norm = t.trim().replace(/\*/g, '×').replace(/[xX]/g, '×').replace(/:/g, '÷').replace(/\./g, ',').replace(/-/g, '−');
+      if (!norm || !/^[0-9+−×÷/=,()\s]+$/.test(norm)) { say('Use só números e os sinais + − × ÷ / = , ( )', 'bad'); return; }
+      score.tot++;
+      const wrong = guessed;
+      const r = learnFrom(norm);
+      if (!r) { guessButtons(false); guessed = null; status(); return; }
+      say(`Eu tinha lido <b>${show(wrong) || '—'}</b>. Aprendi que é <b>${show(r.want)}</b> ✓ Escreva outro.`, 'good');
+      freshPad();
+    };
+
+    setMode('copy');
     requestAnimationFrame(draw);
     window.addEventListener('resize', draw);
   }

@@ -242,3 +242,9 @@ dialog::backdrop { background: rgba(0,0,0,.35); }
 .sheet-need { font-size: 13px; color: var(--muted); display: flex; flex-wrap: wrap; align-items: center; gap: 4px; }
 .sheet-need .chip { display: inline-block; min-width: 22px; text-align: center; padding: 1px 6px; border-radius: 6px; background: var(--accent-soft); color: var(--accent); font-weight: 600; }
 .sheet-actions { flex-wrap: wrap; }
+.sheet-tabs { display: flex; gap: 6px; flex-wrap: wrap; }
+.sheet-tabs button { border: 1px solid var(--line); background: var(--bg); color: var(--text); border-radius: 20px; padding: 7px 14px; font-size: 14px; }
+.sheet-tabs button.active { background: var(--accent); border-color: var(--accent); color: #fff; }
+.sheet-msg .guess { font-size: 26px; font-weight: 700; color: var(--text); margin-left: 6px; letter-spacing: .04em; }
+.btn.good { background: #1f9d55; border-color: #1f9d55; color: #fff; }
+.btn.bad { color: #dc2626; }
