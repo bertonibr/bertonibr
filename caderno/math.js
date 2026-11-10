@@ -314,6 +314,7 @@ const MathInk = (() => {
       const g = groups[groups.length - 1];
       if (g && (sameSymbol(g.b, it.b, H0) || crossesGroup(g, it.p, H0))) { g.p.push(it.p); g.b = boxPts(g.p); } else groups.push({ p: [it.p], b: it.b });
     }
+    if (items.length && W) learnedMerge(groups, H0);
     const gh = groups.map((g) => g.b.h);
     const gmax = Math.max(...gh, 1);
     const H = median(gh.filter((h) => h > 0.4 * gmax)) || gmax;
@@ -324,6 +325,86 @@ const MathInk = (() => {
     }
     for (const r of rows) r.groups.sort((a, b) => a.b.x0 - b.b.x0);
     return { rows, H };
+  }
+
+  /* Usa a letra aprendida para separar: se dois pedaços seguidos, juntos,
+     ficam muito parecidos com um símbolo que o usuário ensinou (o 4 dele de
+     dois traços, o ÷ dele…), eles viram um símbolo só. */
+  function learnedMerge(groups, H) {
+    const tall = groups.filter((g) => g.b.h > 0.5 * H);
+    const base = tall.length ? median(tall.map((g) => g.b.y1)) : median(groups.map((g) => g.b.y1));
+    const score = (p) => {
+      const b = boxPts(p);
+      const st = p.map((q) => q.map(([x, y]) => [(x - b.x0) / H, (y - (base - H)) / H]));
+      return knn(featOf(st));
+    };
+    for (let i = 0; i < groups.length - 1; i++) {
+      const a = groups[i], b = groups[i + 1];
+      const gap = Math.max(a.b.x0, b.b.x0) - Math.min(a.b.x1, b.b.x1);
+      if (gap > 0.3 * H) continue;
+      const m = score([...a.p, ...b.p]);
+      if (!m || m.score < 0.82) continue;
+      const sa = score(a.p), sb = score(b.p);
+      if (m.score > ((sa ? sa.score : 0) + (sb ? sb.score : 0)) / 2 + 0.04) {
+        a.p.push(...b.p); a.b = boxPts(a.p);
+        groups.splice(i + 1, 1);
+        i--;
+      }
+    }
+  }
+
+  /* Treino: encaixa os traços nos símbolos esperados (sabendo a resposta),
+     sem exigir que o usuário mude o jeito de escrever. Divide os traços, na
+     ordem em que foram feitos, em exatamente m símbolos, escolhendo a divisão
+     mais "natural" (pedaços de um símbolo próximos; símbolos diferentes sem
+     se sobrepor). */
+  function alignTo(strokes, m) {
+    const P = strokes.map(ptsOf);
+    const n = P.length;
+    if (n < m || m === 0) return null;
+    const B = P.map((p) => boxPts([p]));
+    const hs = B.map((b) => b.h), maxH = Math.max(...hs, 1);
+    const tallH = hs.filter((h) => h > 0.4 * maxH).sort((a, b) => a - b);
+    const H = tallH.length ? tallH[Math.floor(tallH.length * 0.75)] : maxH;
+    const U = {}; // união [a, b)
+    const union = (a, b) => {
+      const k = a * 100 + b;
+      if (!U[k]) {
+        let x0 = Infinity, x1 = -Infinity, gaps = 0;
+        const sorted = B.slice(a, b).sort((p, q) => p.x0 - q.x0);
+        for (const bx of sorted) { if (x1 > -Infinity && bx.x0 > x1) gaps += bx.x0 - x1; x0 = Math.min(x0, bx.x0); x1 = Math.max(x1, bx.x1); }
+        U[k] = { x0, x1, cx: (x0 + x1) / 2, cost: gaps / H + Math.max(0, (x1 - x0) - 1.6 * H) / H };
+      }
+      return U[k];
+    };
+    const INF = 1e18;
+    // dp[k][b][a]: k símbolos cobrindo traços [0,b), último começa em a
+    const dp = Array.from({ length: m + 1 }, () => Array.from({ length: n + 1 }, () => new Float64Array(n + 1).fill(INF)));
+    const from = Array.from({ length: m + 1 }, () => Array.from({ length: n + 1 }, () => new Int16Array(n + 1).fill(-1)));
+    for (let b = 1; b <= n; b++) dp[1][b][0] = union(0, b).cost;
+    for (let k = 1; k < m; k++) for (let b = k; b <= n; b++) for (let a = 0; a < b; a++) {
+      const cur = dp[k][b][a];
+      if (cur >= INF) continue;
+      const u1 = union(a, b);
+      for (let c = b + 1; c <= n - (m - k - 1); c++) {
+        const u2 = union(b, c);
+        const ov = Math.max(0, Math.min(u1.x1, u2.x1) - Math.max(u1.x0, u2.x0)) / H;
+        const back = u2.cx < u1.cx ? 1 : 0;
+        const v = cur + u2.cost + 2 * ov + back;
+        if (v < dp[k + 1][c][b]) { dp[k + 1][c][b] = v; from[k + 1][c][b] = a; }
+      }
+    }
+    let best = INF, a = -1;
+    for (let x = 0; x < n; x++) if (dp[m][n][x] < best) { best = dp[m][n][x]; a = x; }
+    if (a < 0) return null;
+    const segs = [];
+    let b = n;
+    for (let k = m; k >= 1; k--) { segs.unshift([a, b]); const pa = from[k][b][a]; b = a; a = pa; }
+    const groups = segs.map(([x, y]) => { const p = P.slice(x, y); return { p, b: boxPts(p) }; });
+    groups.sort((g1, g2) => g1.b.cx - g2.b.cx);
+    const gh = groups.map((g) => g.b.h), gmax = Math.max(...gh, 1);
+    const Hg = median(gh.filter((h) => h > 0.4 * gmax)) || gmax;
+    return { groups, H: Hg, row: { groups, cy: median(groups.map((g) => g.b.cy)) } };
   }
 
   // traço reto que atravessa ou passa rente ao símbolo anterior
@@ -789,20 +870,26 @@ const MathInk = (() => {
       if (!strokes.length) { say('Escreva a conta primeiro.'); return; }
       try { await loadModel(); } catch (e) { say('Não consegui carregar o reconhecedor: ' + e.message, 'bad'); return; }
       const objs = strokes.map((s) => ({ pts: s.flatMap(([x, y]) => [x, y, 0.5]) }));
-      const { rows, H } = segment(objs);
-      const row = rows.slice().sort((a, b) => b.groups.length - a.groups.length)[0];
       const want = [...expectOf(current)];
-      if (!row || row.groups.length !== want.length) {
-        const n = row ? row.groups.length : 0;
-        boxes = row ? row.groups.map((g) => g.b) : null;
+      // o app se adapta à escrita: se a separação normal não bate com a conta,
+      // encaixa os traços nos símbolos esperados
+      const { rows: r1, H: H1 } = segment(objs);
+      const row1 = r1.slice().sort((a, b) => b.groups.length - a.groups.length)[0];
+      const direct = row1 && row1.groups.length === want.length;
+      const fit = direct ? { groups: row1.groups, H: H1, row: row1 } : alignTo(objs, want.length);
+      if (!fit) {
+        const { rows } = segment(objs);
+        const r0 = rows.slice().sort((a, b) => b.groups.length - a.groups.length)[0];
+        boxes = r0 ? r0.groups.map((g) => g.b) : null;
         draw();
-        say(`Separei em <b>${n}</b> símbolos (veja as caixinhas numeradas), mas a conta tem <b>${want.length}</b>. ` +
-          (n > want.length ? 'Algum símbolo foi dividido em dois.' : 'Alguns símbolos ficaram juntos — deixe um pouco mais de espaço.') +
-          ' Toque em <b>Apagar</b> e escreva de novo.', 'bad');
+        say(`A conta tem <b>${want.length}</b> símbolos, mas encontrei só <b>${strokes.length}</b> traço${strokes.length === 1 ? '' : 's'}. Parece que dois símbolos foram feitos num traço só — escreva cada um separado.`, 'bad');
         return;
       }
-      const before = row.groups.map((g) => symbolOf(g, H, row)).join('');
-      row.groups.forEach((g, i) => { items.push({ lab: want[i], st: normGroup(g, H, row) }); learned++; });
+      const beforeTxt = row1 ? row1.groups.map((g) => symbolOf(g, H1, row1)).join('') : '';
+      const { groups, H, row } = fit;
+      const before = beforeTxt;
+      groups.forEach((g, i) => { items.push({ lab: want[i], st: normGroup(g, H, row) }); learned++; });
+      boxes = null;
       // guarda só os exemplos mais recentes de cada símbolo
       const cnt = {};
       for (let i = items.length - 1; i >= 0; i--) {
@@ -812,7 +899,8 @@ const MathInk = (() => {
       }
       saveItems();
       done++;
-      if (before === want.join('')) say(`Já li certo: <b>${show(before)}</b> ✓ — reforcei mesmo assim.`, 'good');
+      if (!direct) say(`Antes eu leria <b>${show(before) || '—'}</b>. Me ajustei ao seu jeito de escrever e aprendi <b>${show(want.join(''))}</b> ✓`, 'good');
+      else if (before === want.join('')) say(`Já li certo: <b>${show(before)}</b> ✓ — reforcei mesmo assim.`, 'good');
       else say(`Antes eu leria <b>${show(before)}</b>. Agora aprendi <b>${show(want.join(''))}</b> ✓`, 'good');
       next();
     };
