@@ -107,8 +107,15 @@
     <button data-act="dup">Duplicar</button>
     <button data-act="delete" class="danger">Excluir</button>
   </div>
+  <div id="calcBar" class="sel-bar calc-bar" hidden>
+    <span class="calc-text"></span>
+    <button data-c="ins" class="calc">Escrever resultado</button>
+    <button data-c="fix">Corrigir</button>
+    <button data-c="x" aria-label="Fechar">✕</button>
+  </div>
   <div id="strokeBar" class="sel-bar" hidden>
     <span class="sb-colors"></span>
+    <button data-act="calc" class="calc">= Calcular</button>
     <button data-act="copy">Copiar</button>
     <button data-act="dup">Duplicar</button>
     <button data-act="delete" class="danger">Excluir</button>
@@ -144,5 +151,6 @@
 <script src="config.js"></script>
 <script src="sync.js"></script>
 <script src="app.js"></script>
+<script src="math.js"></script>
 </body>
 </html>
