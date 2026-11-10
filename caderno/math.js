@@ -197,6 +197,24 @@ const MathInk = (() => {
     return { len, chord, straight: len > 0 ? chord / len : 1, horiz, slope, a, z, b: boxPts([p]) };
   }
 
+  // mesmo que info(), mas sem os 15% iniciais e finais do traço (ganchos da caneta)
+  function core(p) {
+    const L = info(p).len;
+    if (L === 0 || p.length < 2) return info(p);
+    const at = (target) => { // ponto exato a uma distância ao longo do traço
+      let acc = 0;
+      for (let i = 1; i < p.length; i++) {
+        const d = Math.hypot(p[i][0] - p[i - 1][0], p[i][1] - p[i - 1][1]);
+        if (acc + d >= target && d > 0) { const t = (target - acc) / d; return [p[i - 1][0] + (p[i][0] - p[i - 1][0]) * t, p[i - 1][1] + (p[i][1] - p[i - 1][1]) * t]; }
+        acc += d;
+      }
+      return p[p.length - 1];
+    };
+    const out = [];
+    for (let k = 0; k <= 12; k++) out.push(at(L * (0.15 + 0.7 * k / 12)));
+    return info(out);
+  }
+
   // reamostra por comprimento e mede a maior curva (ângulo) entre trechos
   function maxTurn(p) {
     const n = 8, L = info(p).len;
@@ -244,6 +262,16 @@ const MathInk = (() => {
     const [A, B] = ext(a, b), [C, D] = ext(c, d);
     const cr = (o, u, v) => (u[0] - o[0]) * (v[1] - o[1]) - (u[1] - o[1]) * (v[0] - o[0]);
     return cr(A, B, C) * cr(A, B, D) < 0 && cr(C, D, A) * cr(C, D, B) < 0;
+  }
+
+  // os dois traços (retas) se cruzam perto do meio de ambos?
+  function crossMid(p, q) {
+    const [ax, ay] = p.a, [bx, by] = p.z, [cx, cy] = q.a, [dx, dy] = q.z;
+    const den = (bx - ax) * (dy - cy) - (by - ay) * (dx - cx);
+    if (Math.abs(den) < 1e-6) return false;
+    const t = ((cx - ax) * (dy - cy) - (cy - ay) * (dx - cx)) / den;
+    const u = ((cx - ax) * (by - ay) - (cy - ay) * (bx - ax)) / den;
+    return t > 0.08 && t < 0.92 && u > 0.08 && u < 0.92;
   }
 
   const median = (a) => { const s = a.slice().sort((x, y) => x - y); return s.length ? s[Math.floor(s.length / 2)] : 0; };
@@ -304,13 +332,15 @@ const MathInk = (() => {
       }
     }
 
-    // dois traços retos que se cruzam: + ou ×
-    if (parts.length === 2 && parts.every((q) => q.straight > 0.88 && q.len > 0.25 * H)) {
-      const [p, q] = parts;
-      if (segCross(p, q, 0.2)) {
-        const hv = (u, v) => u.horiz < 30 && v.horiz > 60;
+    // dois traços (quase) retos que se cruzam ou se tocam: + ou ×
+    // usa o "miolo" de cada traço, ignorando ganchinhos no começo e no fim
+    if (parts.length === 2) {
+      const cores = g.p.map(core);
+      if (cores.every((q) => q.straight > 0.82 && q.len > 0.15 * H) && crossMid(cores[0], cores[1])) {
+        const [p, q] = cores;
+        const hv = (u, v) => u.horiz < 35 && v.horiz > 55;
         if (hv(p, q) || hv(q, p)) return '+';
-        const diag = (u) => u.horiz >= 22 && u.horiz <= 68;
+        const diag = (u) => u.horiz >= 20 && u.horiz <= 70;
         if (diag(p) && diag(q) && p.slope * q.slope < 0) return '×';
       }
     }
@@ -610,5 +640,5 @@ const MathInk = (() => {
   // baixa o modelo em segundo plano para o primeiro cálculo ser rápido
   setTimeout(() => loadModel().catch(() => {}), 3000);
 
-  return { calc, train, closeBar, evaluate, _forward: (img) => loadModel().then(() => forward(img)), _segment: segment, _symbolOf: symbolOf, _raster: raster, _info: info, _maxTurn: maxTurn, _midBulge: midBulge };
+  return { calc, train, closeBar, evaluate, _forward: (img) => loadModel().then(() => forward(img)), _segment: segment, _symbolOf: symbolOf, _raster: raster, _info: info, _maxTurn: maxTurn, _midBulge: midBulge, _core: core, _crossMid: crossMid };
 })();
