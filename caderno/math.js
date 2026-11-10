@@ -312,7 +312,7 @@ const MathInk = (() => {
     for (const it of items) {
       // só junta com o símbolo que estava sendo escrito (ordem dos traços)
       const g = groups[groups.length - 1];
-      if (g && sameSymbol(g.b, it.b, H0)) { g.p.push(it.p); g.b = boxPts(g.p); } else groups.push({ p: [it.p], b: it.b });
+      if (g && (sameSymbol(g.b, it.b, H0) || crossesGroup(g, it.p, H0))) { g.p.push(it.p); g.b = boxPts(g.p); } else groups.push({ p: [it.p], b: it.b });
     }
     const gh = groups.map((g) => g.b.h);
     const gmax = Math.max(...gh, 1);
@@ -326,8 +326,52 @@ const MathInk = (() => {
     return { rows, H };
   }
 
+  // traço reto que atravessa ou passa rente ao símbolo anterior
+  // (a reta do 4, o corte do 7, a barra do 5) — mas não a barra de um ÷ ao lado de um 0
+  function crossesGroup(g, p, H) {
+    const c = core(p);
+    if (c.straight < 0.85 || c.len < 0.2 * H) return false;
+    const pb = boxPts([p]);
+    const ov = Math.max(0, Math.min(pb.x1, g.b.x1) - Math.max(pb.x0, g.b.x0));
+    const ovY = Math.max(0, Math.min(pb.y1, g.b.y1) - Math.max(pb.y0, g.b.y0));
+    if (c.horiz > 55) { if (ovY < 0.5 * Math.min(g.b.h, pb.h)) return false; }        // em pé: precisa acompanhar a altura
+    else if (c.horiz < 35) { if (ov < 0.6 * pb.w) return false; }                     // deitado: precisa ficar "dentro"
+    else if (ov < 0.4 * pb.w) return false;                                           // inclinado
+    const thin = (q) => { const out = [q[0]]; const step = Math.max(1, Math.floor(q.length / 40)); for (let i = step; i < q.length; i += step) out.push(q[i]); out.push(q[q.length - 1]); return out; };
+    const P = thin(p);
+    const total = info(p).len || 1;
+    const near = 0.1 * H;
+    let along = 0;
+    for (let i = 1; i < P.length; i++) {
+      along += Math.hypot(P[i][0] - P[i - 1][0], P[i][1] - P[i - 1][1]);
+      const t = along / total;
+      if (t < 0.12 || t > 0.88) continue; // pelo meio do traço, não só a ponta
+      for (const q of g.p) {
+        const Q = thin(q);
+        for (let j = 1; j < Q.length; j++) {
+          if (segX(P[i - 1], P[i], Q[j - 1], Q[j])) return true;
+          if (distPS(P[i], Q[j - 1], Q[j]) < near) return true;
+        }
+      }
+    }
+    return false;
+  }
+  function distPS(p, a, b) {
+    const dx = b[0] - a[0], dy = b[1] - a[1], l2 = dx * dx + dy * dy;
+    let t = l2 ? ((p[0] - a[0]) * dx + (p[1] - a[1]) * dy) / l2 : 0;
+    t = Math.max(0, Math.min(1, t));
+    return Math.hypot(p[0] - (a[0] + t * dx), p[1] - (a[1] + t * dy));
+  }
+  function segX(a, b, c, d) {
+    const cr = (o, u, v) => (u[0] - o[0]) * (v[1] - o[1]) - (u[1] - o[1]) * (v[0] - o[0]);
+    return cr(a, b, c) * cr(a, b, d) < 0 && cr(c, d, a) * cr(c, d, b) < 0;
+  }
+
   function sameSymbol(a, b, H) {
-    const vert = b.y0 <= a.y1 + 0.5 * H && b.y1 >= a.y0 - 0.5 * H;
+    // pontinhos (como os do ÷) podem ficar mais longe da barra
+    const dot = Math.max(b.w, b.h) < 0.25 * H || Math.max(a.w, a.h) < 0.25 * H;
+    const tol = (dot ? 0.8 : 0.5) * H;
+    const vert = b.y0 <= a.y1 + tol && b.y1 >= a.y0 - tol;
     if (!vert) return false;
     const [s, l] = a.w <= b.w ? [a, b] : [b, a];
     // o menor precisa cair na parte central do maior (não só encostar na borda)
@@ -625,6 +669,7 @@ const MathInk = (() => {
   }
 
   function sheet() {
+    if (document.querySelector('.train')) return; // já aberta
     let fixed = 0, done = 0, learned = 0, current = '';
     try { fixed = +localStorage.getItem('caderno.sheetIdx') || 0; } catch (_) {}
     const wrap = document.createElement('div');
@@ -650,7 +695,8 @@ const MathInk = (() => {
     document.body.appendChild(wrap);
     const c = wrap.querySelector('canvas');
     const msg = wrap.querySelector('.sheet-msg');
-    let strokes = [], cur = null;
+    let strokes = [], cur = null, boxes = null;
+    const COLORS = ['#2563eb', '#e8590c', '#2b8a3e', '#c2255c', '#7048e8', '#0c8599'];
 
     const draw = () => {
       const dpr = window.devicePixelRatio || 1;
@@ -661,6 +707,13 @@ const MathInk = (() => {
       ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, W, H);
       ctx.strokeStyle = '#b9cbe6'; ctx.lineWidth = 1.2;
       ctx.beginPath(); ctx.moveTo(0, H * 0.78); ctx.lineTo(W, H * 0.78); ctx.stroke();
+      // caixas mostrando como a escrita foi separada (quando a contagem não bate)
+      if (boxes) boxes.forEach((b, i) => {
+        ctx.strokeStyle = COLORS[i % COLORS.length]; ctx.lineWidth = 2; ctx.setLineDash([5, 4]);
+        ctx.strokeRect(b.x0 - 5, b.y0 - 5, b.w + 10, b.h + 10);
+        ctx.setLineDash([]); ctx.fillStyle = COLORS[i % COLORS.length]; ctx.font = 'bold 12px -apple-system, sans-serif';
+        ctx.fillText(String(i + 1), b.x0 - 4, b.y0 - 9);
+      });
       ctx.strokeStyle = '#1a1a1a'; ctx.lineWidth = 3; ctx.lineCap = ctx.lineJoin = 'round';
       for (const s of strokes) {
         ctx.beginPath();
@@ -680,7 +733,7 @@ const MathInk = (() => {
     const setExercise = (t) => {
       current = t;
       wrap.querySelector('.sheet-ex').textContent = t;
-      strokes = []; draw(); status();
+      strokes = []; boxes = null; draw(); status();
     };
     const next = () => {
       if (fixed < EXERCISES.length) {
@@ -694,10 +747,11 @@ const MathInk = (() => {
     c.addEventListener('pointerdown', (e) => {
       if (e.pointerType === 'touch' && penOnly()) return;
       e.preventDefault();
-      c.setPointerCapture(e.pointerId);
+      try { c.setPointerCapture(e.pointerId); } catch (_) {}
       const r = c.getBoundingClientRect();
       cur = { id: e.pointerId, s: [[e.clientX - r.left, e.clientY - r.top]] };
       strokes.push(cur.s);
+      if (boxes) { boxes = null; say(''); }
       draw();
     });
     c.addEventListener('pointermove', (e) => {
@@ -711,7 +765,7 @@ const MathInk = (() => {
     c.addEventListener('pointerup', end);
     c.addEventListener('pointercancel', end);
 
-    wrap.querySelector('[data-t=clear]').onclick = () => { strokes = []; draw(); say(''); };
+    wrap.querySelector('[data-t=clear]').onclick = () => { strokes = []; boxes = null; draw(); say(''); };
     wrap.querySelector('[data-t=skip]').onclick = () => { say(''); setExercise(generate()); };
     wrap.querySelector('[data-t=mine]').onclick = () => {
       const t = prompt('Digite a conta que você quer treinar (números, + - x ÷ / = , e parênteses):', '');
@@ -739,8 +793,12 @@ const MathInk = (() => {
       const row = rows.slice().sort((a, b) => b.groups.length - a.groups.length)[0];
       const want = [...expectOf(current)];
       if (!row || row.groups.length !== want.length) {
-        say(`Separei em <b>${row ? row.groups.length : 0}</b> símbolos, mas a conta tem <b>${want.length}</b>. Escreva de novo com um pouco mais de espaço entre eles.`, 'bad');
-        strokes = []; draw();
+        const n = row ? row.groups.length : 0;
+        boxes = row ? row.groups.map((g) => g.b) : null;
+        draw();
+        say(`Separei em <b>${n}</b> símbolos (veja as caixinhas numeradas), mas a conta tem <b>${want.length}</b>. ` +
+          (n > want.length ? 'Algum símbolo foi dividido em dois.' : 'Alguns símbolos ficaram juntos — deixe um pouco mais de espaço.') +
+          ' Toque em <b>Apagar</b> e escreva de novo.', 'bad');
         return;
       }
       const before = row.groups.map((g) => symbolOf(g, H, row)).join('');
