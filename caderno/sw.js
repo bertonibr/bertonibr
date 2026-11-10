@@ -1,5 +1,5 @@
 /* Service worker: funciona offline (cache do app + bibliotecas de PDF). */
-const CACHE = 'caderno-v9';
+const CACHE = 'caderno-v10';
 const SHELL = [
   './', './index.html', './app.js', './sync.js', './math.js', './config.js', './style.css', './manifest.webmanifest',
   './icon-192.png', './icon-512.png', './apple-touch-icon.png',

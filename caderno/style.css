@@ -239,3 +239,6 @@ dialog::backdrop { background: rgba(0,0,0,.35); }
 .sheet-msg { min-height: 22px; font-size: 14px; color: var(--muted); }
 .sheet-msg.good { color: #1f9d55; }
 .sheet-msg.bad { color: #dc2626; }
+.sheet-need { font-size: 13px; color: var(--muted); display: flex; flex-wrap: wrap; align-items: center; gap: 4px; }
+.sheet-need .chip { display: inline-block; min-width: 22px; text-align: center; padding: 1px 6px; border-radius: 6px; background: var(--accent-soft); color: var(--accent); font-weight: 600; }
+.sheet-actions { flex-wrap: wrap; }

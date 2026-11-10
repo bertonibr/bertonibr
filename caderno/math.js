@@ -583,26 +583,68 @@ const MathInk = (() => {
     '40 − 15', '3,75 + 1,5', '(84 − 6) ÷ 2', '905 − 318', '1 + 7 = 8', '2 × 2 = 4',
   ];
   const expectOf = (t) => t.replace(/\s+/g, '').replace(/−/g, '-');
+  const SYMBOLS = [...DIGITS, '+', '-', '×', '÷', '=', ',', '(', ')'];
+  const GOAL = 6; // exemplos por símbolo para considerar "bem treinado"
+  const show = (t) => t.replace(/-/g, '−');
+
+  function counts() {
+    const c = {};
+    for (const k of SYMBOLS) c[k] = 0;
+    for (const it of items) if (c[it.lab] !== undefined) c[it.lab]++;
+    return c;
+  }
+
+  // Gera uma conta nova focando nos símbolos com menos exemplos
+  function generate() {
+    const c = counts();
+    const rnd = (n) => Math.floor(Math.random() * n);
+    const byNeed = (list) => list.slice().sort((x, y) => (c[x] - c[y]) || (Math.random() - 0.5));
+    const weakD = byNeed(DIGITS).slice(0, 4);
+    const digit = () => (Math.random() < 0.7 ? weakD[rnd(weakD.length)] : DIGITS[rnd(10)]);
+    const number = (len) => {
+      let n = '';
+      for (let i = 0; i < len; i++) { let d = digit(); if (i === 0 && d === '0' && len > 1) d = String(1 + rnd(9)); n += d; }
+      return n;
+    };
+    const ops = byNeed(['+', '-', '×', '÷']);
+    const op = Math.random() < 0.7 ? ops[0] : ops[rnd(4)];
+    let a = number(1 + rnd(3)), b = number(1 + rnd(2));
+    if (c[','] < GOAL && Math.random() < 0.6) a = number(1 + rnd(2)) + ',' + String(1 + rnd(9));
+    let expr = `${a} ${op} ${b}`;
+    if ((c['('] < GOAL || c[')'] < GOAL) && Math.random() < 0.55) {
+      const op2 = ['+', '-', '×'][rnd(3)];
+      expr = `(${expr}) ${op2} ${number(1 + rnd(2))}`;
+    }
+    if (c['='] < GOAL && Math.random() < 0.6) {
+      try {
+        const v = evaluate(expectOf(expr));
+        if (Number.isInteger(v) && v >= 0 && v < 100000) expr += ` = ${v}`;
+      } catch (_) {}
+    }
+    return show(expr);
+  }
 
   function sheet() {
-    let idx = 0, learned = 0;
-    try { idx = (+localStorage.getItem('caderno.sheetIdx') || 0) % EXERCISES.length; } catch (_) {}
+    let fixed = 0, done = 0, learned = 0, current = '';
+    try { fixed = +localStorage.getItem('caderno.sheetIdx') || 0; } catch (_) {}
     const wrap = document.createElement('div');
     wrap.className = 'train';
     wrap.innerHTML = `
       <div class="train-box sheet">
         <div class="sheet-head"><h2>Folha de treino</h2><span class="sheet-prog"></span></div>
-        <p>Escreva a conta abaixo do seu jeito normal, na linha. O app aprende cada número e sinal da sua letra.</p>
+        <p>Escreva a conta abaixo do seu jeito normal, na linha, e toque em <b>Aprender e próxima</b>. Treine quantas contas quiser — sempre aparece uma nova.</p>
         <div class="sheet-ex"></div>
         <div class="sheet-pad"><canvas></canvas></div>
         <div class="sheet-msg"></div>
-        <div class="dlg-actions">
+        <div class="sheet-need"></div>
+        <div class="dlg-actions sheet-actions">
           <button class="btn" data-t="reset">Esquecer minha letra</button>
           <span style="flex:1"></span>
           <button class="btn" data-t="clear">Apagar</button>
-          <button class="btn" data-t="skip">Pular</button>
-          <button class="btn" data-t="close">Concluir</button>
-          <button class="btn primary" data-t="ok">Pronto ✓</button>
+          <button class="btn" data-t="skip">Outra conta</button>
+          <button class="btn" data-t="mine">Minha conta…</button>
+          <button class="btn" data-t="close">Sair do treino</button>
+          <button class="btn primary" data-t="ok">Aprender e próxima ✓</button>
         </div>
       </div>`;
     document.body.appendChild(wrap);
@@ -627,10 +669,25 @@ const MathInk = (() => {
         ctx.stroke();
       }
     };
-    const show = () => {
-      wrap.querySelector('.sheet-ex').textContent = EXERCISES[idx];
-      wrap.querySelector('.sheet-prog').textContent = `${idx + 1} de ${EXERCISES.length} · ${items.length} exemplos aprendidos`;
-      strokes = []; draw();
+    const status = () => {
+      const k = counts();
+      const need = SYMBOLS.filter((x) => k[x] < GOAL);
+      wrap.querySelector('.sheet-prog').textContent = `${done} conta${done === 1 ? '' : 's'} nesta sessão · ${items.length} exemplos aprendidos`;
+      wrap.querySelector('.sheet-need').innerHTML = need.length
+        ? `Ainda precisam de treino: ${need.map((x) => `<span class="chip">${show(x)}</span>`).join('')}`
+        : 'Todos os números e sinais já têm bastante exemplos ✓ — continuar treinando ainda ajuda.';
+    };
+    const setExercise = (t) => {
+      current = t;
+      wrap.querySelector('.sheet-ex').textContent = t;
+      strokes = []; draw(); status();
+    };
+    const next = () => {
+      if (fixed < EXERCISES.length) {
+        setExercise(EXERCISES[fixed]);
+        fixed++;
+        try { localStorage.setItem('caderno.sheetIdx', fixed); } catch (_) {}
+      } else setExercise(generate());
     };
     const say = (t, kind) => { msg.innerHTML = t; msg.className = 'sheet-msg ' + (kind || ''); };
 
@@ -654,16 +711,25 @@ const MathInk = (() => {
     c.addEventListener('pointerup', end);
     c.addEventListener('pointercancel', end);
 
-    const next = () => { idx = (idx + 1) % EXERCISES.length; try { localStorage.setItem('caderno.sheetIdx', idx); } catch (_) {} show(); };
-
     wrap.querySelector('[data-t=clear]').onclick = () => { strokes = []; draw(); say(''); };
-    wrap.querySelector('[data-t=skip]').onclick = () => { say(''); next(); };
-    wrap.querySelector('[data-t=close]').onclick = () => { wrap.remove(); if (learned) toast(`Aprendi ${learned} símbolos da sua letra ✓`); };
+    wrap.querySelector('[data-t=skip]').onclick = () => { say(''); setExercise(generate()); };
+    wrap.querySelector('[data-t=mine]').onclick = () => {
+      const t = prompt('Digite a conta que você quer treinar (números, + - x ÷ / = , e parênteses):', '');
+      if (t === null) return;
+      const norm = t.trim().replace(/\*/g, '×').replace(/[xX]/g, '×').replace(/:/g, '÷').replace(/\./g, ',').replace(/-/g, '−');
+      if (!norm || !/^[0-9+−×÷/=,()\s]+$/.test(norm)) { say('Use só números e os sinais + − × ÷ / = , ( )', 'bad'); return; }
+      say(''); setExercise(norm);
+    };
+    wrap.querySelector('[data-t=close]').onclick = () => {
+      wrap.remove();
+      window.removeEventListener('resize', draw);
+      if (learned) toast(`Treino salvo: ${learned} símbolos aprendidos nesta sessão ✓`);
+    };
     wrap.querySelector('[data-t=reset]').onclick = () => {
       if (!confirm('Esquecer tudo que o app aprendeu da sua letra?')) return;
       items = []; samples = {}; saveItems();
-      try { localStorage.removeItem(KEY); } catch (_) {}
-      show(); say('Pronto, voltei ao reconhecimento padrão.');
+      try { localStorage.removeItem(KEY); localStorage.removeItem('caderno.sheetIdx'); } catch (_) {}
+      fixed = 0; next(); say('Pronto, voltei ao reconhecimento padrão.');
     };
     wrap.querySelector('[data-t=ok]').onclick = async () => {
       if (!strokes.length) { say('Escreva a conta primeiro.'); return; }
@@ -671,32 +737,29 @@ const MathInk = (() => {
       const objs = strokes.map((s) => ({ pts: s.flatMap(([x, y]) => [x, y, 0.5]) }));
       const { rows, H } = segment(objs);
       const row = rows.slice().sort((a, b) => b.groups.length - a.groups.length)[0];
-      const want = [...expectOf(EXERCISES[idx])];
+      const want = [...expectOf(current)];
       if (!row || row.groups.length !== want.length) {
         say(`Separei em <b>${row ? row.groups.length : 0}</b> símbolos, mas a conta tem <b>${want.length}</b>. Escreva de novo com um pouco mais de espaço entre eles.`, 'bad');
         strokes = []; draw();
         return;
       }
       const before = row.groups.map((g) => symbolOf(g, H, row)).join('');
-      row.groups.forEach((g, i) => {
-        items.push({ lab: want[i], st: normGroup(g, H, row) });
-        learned++;
-      });
+      row.groups.forEach((g, i) => { items.push({ lab: want[i], st: normGroup(g, H, row) }); learned++; });
       // guarda só os exemplos mais recentes de cada símbolo
-      const count = {};
+      const cnt = {};
       for (let i = items.length - 1; i >= 0; i--) {
         const l = items[i].lab;
-        count[l] = (count[l] || 0) + 1;
-        if (count[l] > MAX_PER) items.splice(i, 1);
+        cnt[l] = (cnt[l] || 0) + 1;
+        if (cnt[l] > MAX_PER) items.splice(i, 1);
       }
       saveItems();
-      const shown = (t) => t.replace(/-/g, '−');
-      if (before === want.join('')) say(`Já li certo: <b>${shown(before)}</b> ✓ — reforcei mesmo assim.`, 'good');
-      else say(`Antes eu leria <b>${shown(before)}</b>. Agora aprendi <b>${shown(want.join(''))}</b> ✓`, 'good');
+      done++;
+      if (before === want.join('')) say(`Já li certo: <b>${show(before)}</b> ✓ — reforcei mesmo assim.`, 'good');
+      else say(`Antes eu leria <b>${show(before)}</b>. Agora aprendi <b>${show(want.join(''))}</b> ✓`, 'good');
       next();
     };
 
-    show();
+    next();
     requestAnimationFrame(draw);
     window.addEventListener('resize', draw);
   }
