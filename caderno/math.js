@@ -17,14 +17,22 @@
 const MathInk = (() => {
   const KEY = 'caderno.ink';
   const DIGITS = ['0', '1', '2', '3', '4', '5', '6', '7', '8', '9'];
-  const PER = 3; // exemplos por dígito na tela de treino
 
   let samples = {};
   try { samples = JSON.parse(localStorage.getItem(KEY) || '{}').samples || {}; } catch (_) {}
   // descarta modelos antigos de sinais (agora reconhecidos por regras)
   for (const k of Object.keys(samples)) if (!DIGITS.includes(k)) delete samples[k];
-  const saveSamples = () => { try { localStorage.setItem(KEY, JSON.stringify({ samples })); } catch (_) {} };
-  const trained = () => Object.keys(samples).length > 0;
+
+  /* Exemplos da letra do usuário (folha de treino): cada item é um símbolo
+     com traços normalizados pela altura da linha H:
+     x = (x - início do símbolo) / H, y = (y - topo da linha) / H, base da linha = 1 */
+  const KEY2 = 'caderno.ink2';
+  const MAX_PER = 15;
+  let items = [];
+  try { items = JSON.parse(localStorage.getItem(KEY2) || '{}').items || []; } catch (_) {}
+  if (!items.length) for (const lab of Object.keys(samples)) for (const st of samples[lab]) items.push({ lab, st });
+  const saveItems = () => { try { localStorage.setItem(KEY2, JSON.stringify({ items })); } catch (_) {} };
+  const trained = () => items.length > 0;
 
   /* =========================================================
      Rede neural (CNN) — inferência em JavaScript puro
@@ -144,35 +152,49 @@ const MathInk = (() => {
     return img;
   }
 
-  /* Exemplos do usuário: características (embedding) calculadas uma vez */
-  let userEmb = null;
-  function buildUserEmb() {
-    userEmb = [];
-    for (const lab of Object.keys(samples)) for (const st of samples[lab]) {
-      const { emb } = forward(raster(st));
-      userEmb.push({ lab, v: normalize(emb) });
-    }
-  }
   function normalize(v) { let n = 0; for (const x of v) n += x * x; n = Math.sqrt(n) || 1; return Array.from(v, (x) => x / n); }
 
   function classifyDigit(strokes) {
-    const { p, emb } = forward(raster(strokes));
-    const score = p.map((x) => Math.log(x + 1e-6));
-    if (trained()) {
-      if (!userEmb) buildUserEmb();
-      const e = normalize(emb), best = new Array(10).fill(0);
-      for (const u of userEmb) {
-        let s = 0;
-        for (let i = 0; i < e.length; i++) s += e[i] * u.v[i];
-        const d = +u.lab;
-        if (s > best[d]) best[d] = s;
-      }
-      // bônus para o dígito cujo exemplo do usuário é parecido
-      for (let d = 0; d < 10; d++) score[d] += 12 * Math.max(0, best[d] - 0.75);
-    }
+    const { p } = forward(raster(strokes));
     let bi = 0;
-    for (let d = 1; d < 10; d++) if (score[d] > score[bi]) bi = d;
+    for (let d = 1; d < 10; d++) if (p[d] > p[bi]) bi = d;
     return String(bi);
+  }
+
+  /* Características de um símbolo: "impressão digital" da rede + forma/posição na linha */
+  function featOf(st) {
+    let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+    for (const s of st) for (const [x, y] of s) { x0 = Math.min(x0, x); x1 = Math.max(x1, x); y0 = Math.min(y0, y); y1 = Math.max(y1, y); }
+    const w = x1 - x0, h = y1 - y0;
+    return {
+      e: normalize(forward(raster(st)).emb),
+      asp: Math.max(-3, Math.min(3, Math.log((w + 0.03) / (h + 0.03)))) / 3,
+      hr: Math.min(h, 2) / 2,
+      cy: Math.max(-1, Math.min(1, (y0 + y1) / 2 - 0.5)),
+      n: Math.min(st.length, 4),
+    };
+  }
+
+  function similarity(a, b) {
+    let c = 0;
+    for (let i = 0; i < a.e.length; i++) c += a.e[i] * b.e[i];
+    return c - 0.45 * (Math.abs(a.asp - b.asp) + Math.abs(a.hr - b.hr) + Math.abs(a.cy - b.cy)) - 0.06 * Math.abs(a.n - b.n);
+  }
+
+  function knn(f) {
+    let best = null;
+    for (const it of items) {
+      if (!it.f) it.f = featOf(it.st);
+      const sc = similarity(f, it.f);
+      if (!best || sc > best.score) best = { lab: it.lab, score: sc };
+    }
+    return best;
+  }
+
+  // normaliza os traços de um símbolo pela linha onde ele está
+  function normGroup(g, H, row) {
+    const base = baseOf(row, H);
+    return g.p.map((s) => s.map(([x, y]) => [Math.round((x - g.b.x0) / H * 1000) / 1000, Math.round((y - (base - H)) / H * 1000) / 1000]));
   }
 
   /* =========================================================
@@ -283,7 +305,9 @@ const MathInk = (() => {
     const items = strokes.map((s) => { const p = ptsOf(s); return { p, b: boxPts([p]) }; });
     const hs = items.map((i) => i.b.h);
     const maxH = Math.max(...hs, 1);
-    const H0 = median(hs.filter((h) => h > 0.4 * maxH)) || maxH;
+    // altura de referência: os traços mais altos (um "4" de dois traços curtos não puxa para baixo)
+    const tallH = hs.filter((h) => h > 0.4 * maxH).sort((a, b) => a - b);
+    const H0 = tallH.length ? tallH[Math.floor(tallH.length * 0.75)] : maxH;
     const groups = [];
     for (const it of items) {
       // só junta com o símbolo que estava sendo escrito (ordem dos traços)
@@ -303,7 +327,7 @@ const MathInk = (() => {
   }
 
   function sameSymbol(a, b, H) {
-    const vert = b.y0 <= a.y1 + 0.35 * H && b.y1 >= a.y0 - 0.35 * H;
+    const vert = b.y0 <= a.y1 + 0.5 * H && b.y1 >= a.y0 - 0.5 * H;
     if (!vert) return false;
     const [s, l] = a.w <= b.w ? [a, b] : [b, a];
     // o menor precisa cair na parte central do maior (não só encostar na borda)
@@ -314,7 +338,20 @@ const MathInk = (() => {
   /* =========================================================
      Classificação de um símbolo
      ========================================================= */
+  function baseOf(row, H) {
+    const tall = row.groups.filter((x) => x.b.h > 0.5 * H);
+    return tall.length ? median(tall.map((x) => x.b.y1)) : row.cy + H / 2;
+  }
+
+  // exemplos da folha de treino têm prioridade quando forem bem parecidos
   function symbolOf(g, H, row) {
+    const def = ruleSymbol(g, H, row);
+    if (!items.length) return def;
+    const k = knn(featOf(normGroup(g, H, row)));
+    return k && k.score >= 0.72 ? k.lab : def;
+  }
+
+  function ruleSymbol(g, H, row) {
     const parts = g.p.map(info);
     const tiny = (q) => Math.max(q.b.w, q.b.h) < 0.22 * H;
     const flat = (q) => !tiny(q) && q.b.h < Math.max(0.3 * q.b.w, 0.15 * H);
@@ -443,7 +480,10 @@ const MathInk = (() => {
     '-': [[[0, 0.5], [0.45, 0.5]]],
     ',': [[[0.1, 0.85], [0.08, 0.95], [0, 1.12]]],
   };
-  const glyph = (ch) => (samples[ch] && samples[ch][0]) || GLYPH[ch] || [];
+  const glyph = (ch) => {
+    for (let i = items.length - 1; i >= 0; i--) if (items[i].lab === ch) return items[i].st;
+    return GLYPH[ch] || [];
+  };
 
   function writeText(text, x, baseY, H, color, size) {
     const out = [];
@@ -522,7 +562,7 @@ const MathInk = (() => {
     commitChange(page, before);
     closeBar();
     selectStrokes(p.v, strokes);
-    if (!trained()) toast('Dica: ⋯ → Ensinar minha letra deixa o cálculo ainda mais preciso', 4000);
+    if (!trained()) toast('Dica: ⋯ → Folha de treino deixa o cálculo mais preciso na sua letra', 4500);
   }
 
   function correct() {
@@ -534,96 +574,131 @@ const MathInk = (() => {
   }
 
   /* =========================================================
-     Tela "Ensinar minha letra" (só números)
+     Folha de treino: o app mostra uma conta, o usuário escreve e
+     cada símbolo vira exemplo da letra dele (já sabendo a resposta).
      ========================================================= */
-  function train() {
+  const EXERCISES = [
+    '0 1 2 3 4', '5 6 7 8 9', '22 + 22', '70 ÷ 3', '34 + 36 = 70', '70 × 3,5',
+    '245 ÷ 3', '(5 + 3) × 2', '98 − 19', '1260 ÷ 4', '17 + 28', '6 × 9 = 54',
+    '40 − 15', '3,75 + 1,5', '(84 − 6) ÷ 2', '905 − 318', '1 + 7 = 8', '2 × 2 = 4',
+  ];
+  const expectOf = (t) => t.replace(/\s+/g, '').replace(/−/g, '-');
+
+  function sheet() {
+    let idx = 0, learned = 0;
+    try { idx = (+localStorage.getItem('caderno.sheetIdx') || 0) % EXERCISES.length; } catch (_) {}
     const wrap = document.createElement('div');
     wrap.className = 'train';
     wrap.innerHTML = `
-      <div class="train-box">
-        <h2>Ensinar minha letra</h2>
-        <p>Escreva cada número nos quadrinhos, do jeito que você escreve normalmente (${PER} vezes cada). Os sinais + − × ÷ = já são reconhecidos sozinhos. Toque em ↺ para apagar um quadrinho.</p>
-        <div class="train-grid"></div>
+      <div class="train-box sheet">
+        <div class="sheet-head"><h2>Folha de treino</h2><span class="sheet-prog"></span></div>
+        <p>Escreva a conta abaixo do seu jeito normal, na linha. O app aprende cada número e sinal da sua letra.</p>
+        <div class="sheet-ex"></div>
+        <div class="sheet-pad"><canvas></canvas></div>
+        <div class="sheet-msg"></div>
         <div class="dlg-actions">
-          <button class="btn" data-t="reset">Voltar ao padrão</button>
+          <button class="btn" data-t="reset">Esquecer minha letra</button>
           <span style="flex:1"></span>
-          <button class="btn" data-t="cancel">Cancelar</button>
-          <button class="btn primary" data-t="save">Salvar</button>
+          <button class="btn" data-t="clear">Apagar</button>
+          <button class="btn" data-t="skip">Pular</button>
+          <button class="btn" data-t="close">Concluir</button>
+          <button class="btn primary" data-t="ok">Pronto ✓</button>
         </div>
       </div>`;
     document.body.appendChild(wrap);
-    const grid = wrap.querySelector('.train-grid');
-    const cells = [];
-    for (const lab of DIGITS) {
-      for (let k = 0; k < PER; k++) {
-        const cell = document.createElement('div');
-        cell.className = 'train-cell';
-        cell.innerHTML = `<span class="lab">${lab}</span><button class="clr" title="Apagar">↺</button><canvas></canvas>`;
-        grid.appendChild(cell);
-        const c = cell.querySelector('canvas');
-        const obj = { lab, strokes: [], c, cur: null };
-        cells.push(obj);
-        const draw = () => {
-          const ctx = c.getContext('2d');
-          const dpr = window.devicePixelRatio || 1;
-          if (c.width !== c.clientWidth * dpr) { c.width = c.clientWidth * dpr; c.height = c.clientHeight * dpr; }
-          ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-          ctx.clearRect(0, 0, c.width, c.height);
-          ctx.strokeStyle = '#1a1a1a'; ctx.lineWidth = 2.5; ctx.lineCap = ctx.lineJoin = 'round';
-          for (const s of obj.strokes) {
-            ctx.beginPath();
-            s.forEach(([x, y], i) => (i ? ctx.lineTo(x, y) : ctx.moveTo(x, y)));
-            if (s.length === 1) ctx.lineTo(s[0][0] + 0.1, s[0][1]);
-            ctx.stroke();
-          }
-        };
-        cell.querySelector('.clr').onclick = () => { obj.strokes = []; draw(); };
-        c.addEventListener('pointerdown', (e) => {
-          if (e.pointerType === 'touch' && penOnly()) return;
-          e.preventDefault();
-          c.setPointerCapture(e.pointerId);
-          const r = c.getBoundingClientRect();
-          obj.cur = { id: e.pointerId, s: [[e.clientX - r.left, e.clientY - r.top]] };
-          obj.strokes.push(obj.cur.s);
-          draw();
-        });
-        c.addEventListener('pointermove', (e) => {
-          if (!obj.cur || obj.cur.id !== e.pointerId) return;
-          const r = c.getBoundingClientRect();
-          const evs = e.getCoalescedEvents ? e.getCoalescedEvents() : [];
-          for (const ev of evs.length ? evs : [e]) obj.cur.s.push([ev.clientX - r.left, ev.clientY - r.top]);
-          draw();
-        });
-        const end = (e) => { if (obj.cur && obj.cur.id === e.pointerId) obj.cur = null; };
-        c.addEventListener('pointerup', end);
-        c.addEventListener('pointercancel', end);
-        requestAnimationFrame(draw);
+    const c = wrap.querySelector('canvas');
+    const msg = wrap.querySelector('.sheet-msg');
+    let strokes = [], cur = null;
+
+    const draw = () => {
+      const dpr = window.devicePixelRatio || 1;
+      const W = c.clientWidth, H = c.clientHeight;
+      if (c.width !== W * dpr || c.height !== H * dpr) { c.width = W * dpr; c.height = H * dpr; }
+      const ctx = c.getContext('2d');
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, W, H);
+      ctx.strokeStyle = '#b9cbe6'; ctx.lineWidth = 1.2;
+      ctx.beginPath(); ctx.moveTo(0, H * 0.78); ctx.lineTo(W, H * 0.78); ctx.stroke();
+      ctx.strokeStyle = '#1a1a1a'; ctx.lineWidth = 3; ctx.lineCap = ctx.lineJoin = 'round';
+      for (const s of strokes) {
+        ctx.beginPath();
+        s.forEach(([x, y], i) => (i ? ctx.lineTo(x, y) : ctx.moveTo(x, y)));
+        if (s.length === 1) ctx.lineTo(s[0][0] + 0.1, s[0][1]);
+        ctx.stroke();
       }
-    }
-    const close = () => wrap.remove();
-    wrap.querySelector('[data-t=cancel]').onclick = close;
+    };
+    const show = () => {
+      wrap.querySelector('.sheet-ex').textContent = EXERCISES[idx];
+      wrap.querySelector('.sheet-prog').textContent = `${idx + 1} de ${EXERCISES.length} · ${items.length} exemplos aprendidos`;
+      strokes = []; draw();
+    };
+    const say = (t, kind) => { msg.innerHTML = t; msg.className = 'sheet-msg ' + (kind || ''); };
+
+    c.addEventListener('pointerdown', (e) => {
+      if (e.pointerType === 'touch' && penOnly()) return;
+      e.preventDefault();
+      c.setPointerCapture(e.pointerId);
+      const r = c.getBoundingClientRect();
+      cur = { id: e.pointerId, s: [[e.clientX - r.left, e.clientY - r.top]] };
+      strokes.push(cur.s);
+      draw();
+    });
+    c.addEventListener('pointermove', (e) => {
+      if (!cur || cur.id !== e.pointerId) return;
+      const r = c.getBoundingClientRect();
+      const evs = e.getCoalescedEvents ? e.getCoalescedEvents() : [];
+      for (const ev of evs.length ? evs : [e]) cur.s.push([ev.clientX - r.left, ev.clientY - r.top]);
+      draw();
+    });
+    const end = (e) => { if (cur && cur.id === e.pointerId) cur = null; };
+    c.addEventListener('pointerup', end);
+    c.addEventListener('pointercancel', end);
+
+    const next = () => { idx = (idx + 1) % EXERCISES.length; try { localStorage.setItem('caderno.sheetIdx', idx); } catch (_) {} show(); };
+
+    wrap.querySelector('[data-t=clear]').onclick = () => { strokes = []; draw(); say(''); };
+    wrap.querySelector('[data-t=skip]').onclick = () => { say(''); next(); };
+    wrap.querySelector('[data-t=close]').onclick = () => { wrap.remove(); if (learned) toast(`Aprendi ${learned} símbolos da sua letra ✓`); };
     wrap.querySelector('[data-t=reset]').onclick = () => {
-      if (!confirm('Apagar a letra ensinada e voltar ao reconhecimento padrão?')) return;
-      samples = {}; saveSamples(); userEmb = null; close(); toast('Reconhecimento padrão restaurado');
+      if (!confirm('Esquecer tudo que o app aprendeu da sua letra?')) return;
+      items = []; samples = {}; saveItems();
+      try { localStorage.removeItem(KEY); } catch (_) {}
+      show(); say('Pronto, voltei ao reconhecimento padrão.');
     };
-    wrap.querySelector('[data-t=save]').onclick = () => {
-      const fresh = {};
-      for (const o of cells) {
-        if (!o.strokes.length) continue;
-        let x0 = Infinity, y0 = Infinity, y1 = -Infinity;
-        for (const s of o.strokes) for (const [x, y] of s) { x0 = Math.min(x0, x); y0 = Math.min(y0, y); y1 = Math.max(y1, y); }
-        const h = Math.max(y1 - y0, 1);
-        const norm = o.strokes.map((s) => s.map(([x, y]) => [Math.round((x - x0) / h * 1000) / 1000, Math.round((y - y0) / h * 1000) / 1000]));
-        (fresh[o.lab] = fresh[o.lab] || []).push(norm);
+    wrap.querySelector('[data-t=ok]').onclick = async () => {
+      if (!strokes.length) { say('Escreva a conta primeiro.'); return; }
+      try { await loadModel(); } catch (e) { say('Não consegui carregar o reconhecedor: ' + e.message, 'bad'); return; }
+      const objs = strokes.map((s) => ({ pts: s.flatMap(([x, y]) => [x, y, 0.5]) }));
+      const { rows, H } = segment(objs);
+      const row = rows.slice().sort((a, b) => b.groups.length - a.groups.length)[0];
+      const want = [...expectOf(EXERCISES[idx])];
+      if (!row || row.groups.length !== want.length) {
+        say(`Separei em <b>${row ? row.groups.length : 0}</b> símbolos, mas a conta tem <b>${want.length}</b>. Escreva de novo com um pouco mais de espaço entre eles.`, 'bad');
+        strokes = []; draw();
+        return;
       }
-      const n = Object.keys(fresh).length;
-      if (!n) { toast('Escreva pelo menos um número'); return; }
-      Object.assign(samples, fresh);
-      saveSamples();
-      userEmb = null;
-      close();
-      toast(`Letra salva (${n} números) ✓`);
+      const before = row.groups.map((g) => symbolOf(g, H, row)).join('');
+      row.groups.forEach((g, i) => {
+        items.push({ lab: want[i], st: normGroup(g, H, row) });
+        learned++;
+      });
+      // guarda só os exemplos mais recentes de cada símbolo
+      const count = {};
+      for (let i = items.length - 1; i >= 0; i--) {
+        const l = items[i].lab;
+        count[l] = (count[l] || 0) + 1;
+        if (count[l] > MAX_PER) items.splice(i, 1);
+      }
+      saveItems();
+      const shown = (t) => t.replace(/-/g, '−');
+      if (before === want.join('')) say(`Já li certo: <b>${shown(before)}</b> ✓ — reforcei mesmo assim.`, 'good');
+      else say(`Antes eu leria <b>${shown(before)}</b>. Agora aprendi <b>${shown(want.join(''))}</b> ✓`, 'good');
+      next();
     };
+
+    show();
+    requestAnimationFrame(draw);
+    window.addEventListener('resize', draw);
   }
 
   /* ---------- Botões ---------- */
@@ -640,5 +715,5 @@ const MathInk = (() => {
   // baixa o modelo em segundo plano para o primeiro cálculo ser rápido
   setTimeout(() => loadModel().catch(() => {}), 3000);
 
-  return { calc, train, closeBar, evaluate, _forward: (img) => loadModel().then(() => forward(img)), _segment: segment, _symbolOf: symbolOf, _raster: raster, _info: info, _maxTurn: maxTurn, _midBulge: midBulge, _core: core, _crossMid: crossMid };
+  return { calc, sheet, closeBar, evaluate, _forward: (img) => loadModel().then(() => forward(img)), _segment: segment, _symbolOf: symbolOf, _raster: raster, _info: info, _maxTurn: maxTurn, _midBulge: midBulge, _core: core, _crossMid: crossMid, _same: sameSymbol };
 })();

@@ -1539,7 +1539,7 @@ function bindUI() {
     { label: 'Inserir foto na página', action: () => $('#filePhoto').click() },
     { label: 'Inserir PDF ou imagem como páginas', action: () => $('#fileInsert').click() },
     { label: 'Exportar PDF', action: exportPdf },
-    { label: 'Ensinar minha letra (cálculo)', action: () => MathInk.train() },
+    { label: 'Folha de treino (cálculo)', action: () => MathInk.sheet() },
     '-',
     { label: 'Limpar página', action: () => {
       const p = S.pages[currentIndex()];

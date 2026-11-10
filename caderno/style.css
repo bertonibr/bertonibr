@@ -228,3 +228,14 @@ dialog::backdrop { background: rgba(0,0,0,.35); }
   position: fixed; left: 50%; top: calc(env(safe-area-inset-top) + 64px); transform: translateX(-50%);
   background: rgba(31,41,55,.92); color: #fff; padding: 10px 18px; border-radius: 12px; z-index: 60; font-size: 14px;
 }
+
+/* Folha de treino */
+.train-box.sheet { width: min(900px, 100%); }
+.sheet-head { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
+.sheet-prog { color: var(--muted); font-size: 13px; }
+.sheet-ex { font-size: 34px; font-weight: 600; letter-spacing: .04em; text-align: center; padding: 4px 0; }
+.sheet-pad { position: relative; height: 190px; border: 1px solid var(--line); border-radius: 12px; overflow: hidden; background: #fff; }
+.sheet-pad canvas { position: absolute; inset: 0; width: 100%; height: 100%; touch-action: none; }
+.sheet-msg { min-height: 22px; font-size: 14px; color: var(--muted); }
+.sheet-msg.good { color: #1f9d55; }
+.sheet-msg.bad { color: #dc2626; }
