@@ -150,6 +150,10 @@ input[type=text] { -webkit-user-select: text; user-select: text; }
 .sel-bar button { border: none; background: none; color: #fff; padding: 9px 12px; border-radius: 10px; white-space: nowrap; font-size: 14px; }
 .sel-bar button:active { background: rgba(255,255,255,.15); }
 .sel-bar button.danger { color: #ff8a8a; }
+.sel-bar .sb-colors { display: flex; align-items: center; gap: 6px; padding: 0 8px 0 6px; border-right: 1px solid rgba(255,255,255,.2); margin-right: 2px; }
+.sel-bar .swatch { width: 24px; height: 24px; border-radius: 50%; box-shadow: inset 0 0 0 1.5px rgba(255,255,255,.6); padding: 0; }
+.page .sel.ssel { outline: 2px dashed var(--accent); background: rgba(37,99,235,.04); }
+.page canvas.float { z-index: 2; transform-origin: 0 0; }
 
 .page .pnum { position: absolute; bottom: -18px; right: 0; font-size: 11px; color: var(--muted); }
 .page-ind {

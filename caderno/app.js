@@ -403,6 +403,7 @@ function attach(v) {
 function detach(v) {
   if (!v.attached) return;
   if (sel && sel.v === v) deselect();
+  if (ssel && ssel.v === v) deselectStrokes();
   for (const c of [v.bg, v.ink]) { c.width = c.height = 0; c.remove(); }
   v.imgs.remove();
   v.bg = v.ink = v.imgs = null;
@@ -467,6 +468,7 @@ function hitImage(v, pt) {
 }
 
 function select(v, o) {
+  if (ssel) deselectStrokes();
   if (sel && sel.el) sel.el.remove();
   const el = document.createElement('div');
   el.className = 'sel';
@@ -485,7 +487,7 @@ function deselect() {
   sel = null;
   gest = null;
   $('#selBar').hidden = true;
-  $('#pageInd').hidden = false;
+  if (!ssel) $('#pageInd').hidden = false;
 }
 
 const imgSnapshot = (page) => (page.images || []).map((o) => ({ ...o }));
@@ -695,7 +697,293 @@ function renderInk(v) {
   ctx.clearRect(0, 0, c.width, c.height);
   const k = c.width / PAGE_W;
   ctx.setTransform(k, 0, 0, k, 0, 0);
-  for (const s of v.page.strokes) drawStroke(ctx, s);
+  const skip = ssel && ssel.v === v ? ssel.set : null; // selecionados ficam na camada flutuante
+  for (const s of v.page.strokes) if (!skip || !skip.has(s)) drawStroke(ctx, s);
+}
+
+/* =========================================================
+   SELEÇÃO DE ESCRITA (laço): mover, redimensionar, cor,
+   copiar/colar, duplicar e excluir traços.
+   ========================================================= */
+let ssel = null;     // { v, strokes, set, box, el, float }
+let sgest = null;    // gesto sobre a seleção de traços
+let lasso = null;    // laço sendo desenhado
+let clipboard = null;
+const PAD = 8;
+
+function strokeBox(strokes) {
+  let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+  for (const s of strokes) {
+    const p = s.pts, r = s.size / 2;
+    for (let i = 0; i < p.length; i += 3) {
+      if (p[i] - r < x0) x0 = p[i] - r;
+      if (p[i] + r > x1) x1 = p[i] + r;
+      if (p[i + 1] - r < y0) y0 = p[i + 1] - r;
+      if (p[i + 1] + r > y1) y1 = p[i + 1] + r;
+    }
+  }
+  return { x: x0 - PAD, y: y0 - PAD, w: x1 - x0 + 2 * PAD, h: y1 - y0 + 2 * PAD };
+}
+
+function placeBox(el, b, page) {
+  el.style.left = (b.x / PAGE_W * 100) + '%';
+  el.style.top = (b.y / page.h * 100) + '%';
+  el.style.width = (b.w / PAGE_W * 100) + '%';
+  el.style.height = (b.h / page.h * 100) + '%';
+}
+
+function renderFloat() {
+  if (!ssel) return;
+  const { v, float: c } = ssel;
+  const { pw, ph } = canvasScale(v);
+  c.width = pw; c.height = ph;
+  c.style.transform = '';
+  const ctx = c.getContext('2d');
+  const k = c.width / PAGE_W;
+  ctx.setTransform(k, 0, 0, k, 0, 0);
+  for (const s of ssel.strokes) drawStroke(ctx, s);
+}
+
+function selectStrokes(v, strokes) {
+  deselect();
+  deselectStrokes();
+  if (!strokes.length) return;
+  const float = document.createElement('canvas');
+  float.className = 'float';
+  const el = document.createElement('div');
+  el.className = 'sel ssel';
+  el.innerHTML = ['nw', 'ne', 'se', 'sw'].map((h) => `<span class="h" data-h="${h}"></span>`).join('');
+  el.addEventListener('pointerdown', onSSelDown);
+  v.el.appendChild(float);
+  v.el.appendChild(el);
+  ssel = { v, strokes, set: new Set(strokes), box: strokeBox(strokes), el, float };
+  placeBox(el, ssel.box, v.page);
+  renderInk(v);
+  renderFloat();
+  $('#strokeBar').hidden = false;
+  $('#pageInd').hidden = true;
+}
+
+function deselectStrokes() {
+  if (!ssel) return;
+  const v = ssel.v;
+  ssel.float.width = ssel.float.height = 0;
+  ssel.float.remove();
+  ssel.el.remove();
+  ssel = null;
+  sgest = null;
+  renderInk(v);
+  $('#strokeBar').hidden = true;
+  if (!sel) $('#pageInd').hidden = false;
+}
+
+// Troca os traços selecionados por versões novas (mantém a ordem na página)
+function replaceSelected(page, fn) {
+  const map = new Map();
+  page.strokes = page.strokes.map((s) => {
+    if (!ssel.set.has(s)) return s;
+    const n = fn(s);
+    map.set(s, n);
+    return n;
+  });
+  ssel.strokes = ssel.strokes.map((s) => map.get(s));
+  ssel.set = new Set(ssel.strokes);
+}
+
+const r1 = (n) => Math.round(n * 10) / 10;
+
+function onSSelDown(e) {
+  if (!ssel) return;
+  e.preventDefault();
+  e.stopPropagation();
+  try { e.currentTarget.setPointerCapture(e.pointerId); } catch (_) {}
+  const kind = (e.target.dataset && e.target.dataset.h) || 'move';
+  const b = ssel.box;
+  const g = { id: e.pointerId, kind, p0: toLogical(ssel.v, e), box0: { ...b }, moved: false, dx: 0, dy: 0, s: 1 };
+  if (kind !== 'move') {
+    const hx = kind.includes('e') ? 1 : -1, hy = kind.includes('s') ? 1 : -1;
+    g.anchor = { x: hx > 0 ? b.x : b.x + b.w, y: hy > 0 ? b.y : b.y + b.h };
+    g.corner = { x: hx > 0 ? b.x + b.w : b.x, y: hy > 0 ? b.y + b.h : b.y };
+  }
+  sgest = g;
+}
+
+function onSGestureMove(e) {
+  if (!sgest || e.pointerId !== sgest.id || !ssel) return false;
+  e.preventDefault();
+  const g = sgest, { v, el, float } = ssel;
+  const p = toLogical(v, e);
+  const k = v.el.clientWidth / PAGE_W;
+  if (Math.hypot(p.x - g.p0.x, p.y - g.p0.y) > 1) g.moved = true;
+  const b0 = g.box0;
+  if (g.kind === 'move') {
+    g.dx = p.x - g.p0.x; g.dy = p.y - g.p0.y;
+    float.style.transformOrigin = '0 0';
+    float.style.transform = `translate(${g.dx * k}px, ${g.dy * k}px)`;
+    placeBox(el, { x: b0.x + g.dx, y: b0.y + g.dy, w: b0.w, h: b0.h }, v.page);
+  } else {
+    const ax = g.anchor.x, ay = g.anchor.y;
+    const d0x = g.corner.x - ax, d0y = g.corner.y - ay;
+    let s = ((p.x - ax) * d0x + (p.y - ay) * d0y) / (d0x * d0x + d0y * d0y);
+    s = Math.max(s, 20 / Math.min(b0.w, b0.h), 0.05);
+    g.s = s;
+    float.style.transformOrigin = `${ax * k}px ${ay * k}px`;
+    float.style.transform = `scale(${s})`;
+    const x0 = ax + (b0.x - ax) * s, y0 = ay + (b0.y - ay) * s;
+    placeBox(el, { x: x0, y: y0, w: b0.w * s, h: b0.h * s }, v.page);
+  }
+  return true;
+}
+
+function onSGestureEnd(e) {
+  if (!sgest || e.pointerId !== sgest.id) return false;
+  const g = sgest; sgest = null;
+  if (!ssel) return true;
+  const page = ssel.v.page;
+  if (!g.moved) { placeBox(ssel.el, ssel.box, page); ssel.float.style.transform = ''; return true; }
+  const before = page.strokes.slice();
+  if (g.kind === 'move') {
+    replaceSelected(page, (s) => {
+      const pts = s.pts.slice();
+      for (let i = 0; i < pts.length; i += 3) { pts[i] = r1(pts[i] + g.dx); pts[i + 1] = r1(pts[i + 1] + g.dy); }
+      return { ...s, pts };
+    });
+  } else {
+    const { x: ax, y: ay } = g.anchor, sc = g.s;
+    replaceSelected(page, (s) => {
+      const pts = s.pts.slice();
+      for (let i = 0; i < pts.length; i += 3) { pts[i] = r1(ax + (pts[i] - ax) * sc); pts[i + 1] = r1(ay + (pts[i + 1] - ay) * sc); }
+      return { ...s, pts, size: Math.round(s.size * sc * 100) / 100 };
+    });
+  }
+  ssel.box = strokeBox(ssel.strokes);
+  placeBox(ssel.el, ssel.box, page);
+  renderFloat();
+  commitChange(page, before);
+  return true;
+}
+
+/* ---- laço ---- */
+function pointInPoly(x, y, poly) {
+  let inside = false;
+  for (let i = 0, j = poly.length - 2; i < poly.length; j = i, i += 2) {
+    const xi = poly[i], yi = poly[i + 1], xj = poly[j], yj = poly[j + 1];
+    if ((yi > y) !== (yj > y) && x < ((xj - xi) * (y - yi)) / (yj - yi) + xi) inside = !inside;
+  }
+  return inside;
+}
+
+function startLasso(e, v) {
+  e.preventDefault();
+  try { v.el.setPointerCapture(e.pointerId); } catch (_) {}
+  const pt = toLogical(v, e);
+  const { pw, ph } = canvasScale(v);
+  live.width = pw; live.height = ph;
+  v.el.appendChild(live);
+  lasso = { id: e.pointerId, v, pts: [pt.x, pt.y], len: 0, lx: pt.x, ly: pt.y };
+}
+
+function drawLasso() {
+  const ctx = live.getContext('2d');
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  ctx.clearRect(0, 0, live.width, live.height);
+  if (!lasso) return;
+  const k = live.width / PAGE_W, p = lasso.pts;
+  ctx.setTransform(k, 0, 0, k, 0, 0);
+  ctx.beginPath();
+  ctx.moveTo(p[0], p[1]);
+  for (let i = 2; i < p.length; i += 2) ctx.lineTo(p[i], p[i + 1]);
+  ctx.closePath();
+  ctx.fillStyle = 'rgba(37,99,235,.07)';
+  ctx.fill();
+  ctx.setLineDash([8, 6]);
+  ctx.lineWidth = 2;
+  ctx.strokeStyle = '#2563eb';
+  ctx.stroke();
+}
+
+function onLassoMove(e) {
+  if (!lasso || e.pointerId !== lasso.id) return false;
+  e.preventDefault();
+  const pt = toLogical(lasso.v, e);
+  const d = Math.hypot(pt.x - lasso.lx, pt.y - lasso.ly);
+  if (d > 3) { lasso.pts.push(pt.x, pt.y); lasso.len += d; lasso.lx = pt.x; lasso.ly = pt.y; }
+  if (!liveRaf) liveRaf = requestAnimationFrame(() => { liveRaf = 0; drawLasso(); });
+  return true;
+}
+
+function onLassoEnd(e) {
+  if (!lasso || e.pointerId !== lasso.id) return false;
+  const l = lasso; lasso = null;
+  live.remove();
+  const v = l.v;
+  if (l.len < 15) {
+    // toque: seleciona a foto tocada (ou limpa a seleção)
+    const o = hitImage(v, { x: l.pts[0], y: l.pts[1] });
+    deselectStrokes();
+    if (o) select(v, o); else deselect();
+    return true;
+  }
+  const picked = v.page.strokes.filter((s) => {
+    const p = s.pts, n = p.length / 3;
+    let inside = 0;
+    for (let i = 0; i < p.length; i += 3) if (pointInPoly(p[i], p[i + 1], l.pts)) inside++;
+    return inside / n >= 0.5;
+  });
+  if (picked.length) selectStrokes(v, picked);
+  else { deselect(); deselectStrokes(); toast('Nenhuma escrita dentro do laço'); }
+  return true;
+}
+
+/* ---- ações ---- */
+function strokeAction(kind, color) {
+  if (!ssel) return;
+  const v = ssel.v, page = v.page;
+  const before = page.strokes.slice();
+  if (kind === 'delete') {
+    page.strokes = page.strokes.filter((s) => !ssel.set.has(s));
+    deselectStrokes();
+    renderInk(v);
+    commitChange(page, before);
+  } else if (kind === 'color') {
+    replaceSelected(page, (s) => ({ ...s, color }));
+    renderFloat();
+    commitChange(page, before);
+  } else if (kind === 'copy') {
+    clipboard = ssel.strokes.map((s) => ({ ...s, pts: s.pts.slice() }));
+    toast('Copiado — use ⋯ → Colar em qualquer página');
+  } else if (kind === 'dup') {
+    const copies = ssel.strokes.map((s) => shiftStroke(s, 25, 25));
+    page.strokes.push(...copies);
+    commitChange(page, before);
+    selectStrokes(v, copies);
+  }
+}
+
+function shiftStroke(s, dx, dy) {
+  const pts = s.pts.slice();
+  for (let i = 0; i < pts.length; i += 3) { pts[i] = r1(pts[i] + dx); pts[i + 1] = r1(pts[i + 1] + dy); }
+  return { ...s, id: Math.random().toString(36).slice(2, 10), pts };
+}
+
+function pasteStrokes() {
+  if (!clipboard || !S.nb) return;
+  const page = S.pages[currentIndex()];
+  const v = S.views.get(page.id);
+  attach(v);
+  // cola no centro da parte visível da página
+  const b = strokeBox(clipboard);
+  const r = v.el.getBoundingClientRect(), sr = scroller.getBoundingClientRect();
+  const vx = (Math.max(r.left, sr.left) + Math.min(r.right, sr.right)) / 2;
+  const vy = (Math.max(r.top, sr.top) + Math.min(r.bottom, sr.bottom)) / 2;
+  const cx = (vx - r.left) / r.width * PAGE_W, cy = (vy - r.top) / r.height * page.h;
+  const dx = cx - (b.x + b.w / 2), dy = cy - (b.y + b.h / 2);
+  const before = page.strokes.slice();
+  const copies = clipboard.map((s) => shiftStroke(s, dx, dy));
+  page.strokes.push(...copies);
+  commitChange(page, before);
+  setTool('select');
+  selectStrokes(v, copies);
 }
 
 /* Desenha um traço. s.pts = [x, y, pressão, x, y, pressão, ...] */
@@ -767,15 +1055,20 @@ function toLogical(v, e) {
 function onPointerDown(e) {
   if (e.pointerType === 'pen' && prefs.penOnly === null) setPenOnly(true, false);
   if (prefs.tool === 'select') {
-    // ferramenta de seleção: toque numa foto seleciona e já permite arrastar
-    if (gest || cur || (e.pointerType === 'mouse' && e.button !== 0)) return;
+    // ferramenta de seleção: tocar numa foto seleciona; arrastar desenha um laço
+    if (gest || sgest || lasso || cur || (e.pointerType === 'mouse' && e.button !== 0)) return;
     const pageEl = e.target.closest('.page');
     const v = pageEl && S.views.get(pageEl.dataset.id);
     if (!v) return;
-    const o = hitImage(v, toLogical(v, e));
-    if (!o) { deselect(); return; }
-    select(v, o);
-    if (e.pointerType !== 'touch' || !penOnly()) startGesture(e, 'move');
+    if (e.pointerType === 'touch' && (penOnly() || fingerCount > 1)) {
+      // dedo no modo "só a Pencil": só toque para selecionar foto (arrastar rola a página)
+      const o = hitImage(v, toLogical(v, e));
+      deselectStrokes();
+      if (o) select(v, o); else deselect();
+      return;
+    }
+    attach(v);
+    startLasso(e, v);
     return;
   }
   if (e.pointerType === 'touch' && (penOnly() || fingerCount > 1)) return;
@@ -805,7 +1098,7 @@ function onPointerDown(e) {
 }
 
 function onPointerMove(e) {
-  if (onGestureMove(e)) return;
+  if (onGestureMove(e) || onSGestureMove(e) || onLassoMove(e)) return;
   if (!cur || e.pointerId !== cur.id) return;
   e.preventDefault();
   const evs = (e.getCoalescedEvents && e.getCoalescedEvents().length) ? e.getCoalescedEvents() : [e];
@@ -821,7 +1114,7 @@ function onPointerMove(e) {
 }
 
 function onPointerUp(e) {
-  if (onGestureEnd(e)) return;
+  if (onGestureEnd(e) || onSGestureEnd(e) || onLassoEnd(e)) return;
   if (!cur || e.pointerId !== cur.id) return;
   const c = cur; cur = null;
   live.remove();
@@ -917,8 +1210,8 @@ function applyHistory(from, to, key) {
   updateUndoButtons();
   v.el.scrollIntoView({ block: 'nearest' });
 }
-function undo() { cancelStroke(); applyHistory(S.undo, S.redo, 'before'); }
-function redo() { cancelStroke(); applyHistory(S.redo, S.undo, 'after'); }
+function undo() { cancelStroke(); deselectStrokes(); applyHistory(S.undo, S.redo, 'before'); }
+function redo() { cancelStroke(); deselectStrokes(); applyHistory(S.redo, S.undo, 'after'); }
 function updateUndoButtons() {
   $('#btnUndo').disabled = !S.undo.length;
   $('#btnRedo').disabled = !S.redo.length;
@@ -1179,7 +1472,7 @@ function renderToolbar() {
 function setTool(t) {
   prefs.tool = t;
   savePrefs();
-  if (t !== 'select') deselect();
+  if (t !== 'select') { deselect(); deselectStrokes(); }
   renderToolbar();
 }
 
@@ -1188,6 +1481,14 @@ function bindUI() {
   $('#btnPhoto').onclick = () => $('#filePhoto').click();
   $('#filePhoto').onchange = (e) => { const fs = [...e.target.files]; e.target.value = ''; insertPhotos(fs); };
   document.querySelectorAll('#selBar button').forEach((b) => (b.onclick = () => selAction(b.dataset.act)));
+  const sb = $('#strokeBar');
+  for (const c of PEN_COLORS) {
+    const b = document.createElement('button');
+    b.className = 'swatch'; b.style.background = c; b.title = 'Mudar cor';
+    b.onclick = () => strokeAction('color', c);
+    sb.querySelector('.sb-colors').appendChild(b);
+  }
+  sb.querySelectorAll('button[data-act]').forEach((b) => (b.onclick = () => strokeAction(b.dataset.act)));
   $('#btnImportPdf').onclick = () => $('#filePdf').click();
   $('#filePdf').onchange = async (e) => {
     const f = e.target.files[0]; e.target.value = '';
@@ -1233,6 +1534,7 @@ function bindUI() {
     ]);
   };
   $('#btnMore').onclick = (e) => showMenu(e.currentTarget, [
+    ...(clipboard ? [{ label: 'Colar escrita copiada', action: pasteStrokes }] : []),
     { label: 'Inserir foto na página', action: () => $('#filePhoto').click() },
     { label: 'Inserir PDF ou imagem como páginas', action: () => $('#fileInsert').click() },
     { label: 'Exportar PDF', action: exportPdf },
@@ -1252,7 +1554,8 @@ function bindUI() {
   window.addEventListener('pointermove', onPointerMove, { passive: false });
   window.addEventListener('pointerup', onPointerUp);
   window.addEventListener('pointercancel', (e) => {
-    if (onGestureEnd(e)) return;
+    if (onGestureEnd(e) || onSGestureEnd(e)) return;
+    if (lasso && e.pointerId === lasso.id) { lasso = null; live.remove(); return; }
     if (cur && e.pointerId === cur.id) cancelStroke();
   });
   scroller.addEventListener('scroll', () => requestAnimationFrame(updatePageInd), { passive: true });
@@ -1273,6 +1576,10 @@ function bindUI() {
     if (mod && e.key.toLowerCase() === 'z') { e.preventDefault(); e.shiftKey ? redo() : undo(); }
     else if (mod && e.key.toLowerCase() === 'y') { e.preventDefault(); redo(); }
     else if (sel && (e.key === 'Delete' || e.key === 'Backspace')) { e.preventDefault(); selAction('delete'); }
+    else if (ssel && (e.key === 'Delete' || e.key === 'Backspace')) { e.preventDefault(); strokeAction('delete'); }
+    else if (ssel && mod && e.key.toLowerCase() === 'c') { e.preventDefault(); strokeAction('copy'); }
+    else if (mod && e.key.toLowerCase() === 'v' && clipboard) { e.preventDefault(); pasteStrokes(); }
+    else if (ssel && e.key === 'Escape') deselectStrokes();
     else if (sel && e.key === 'Escape') deselect();
   });
 }

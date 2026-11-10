@@ -10,6 +10,7 @@ App web instalável para escrever com Apple Pencil, no estilo de um caderno digi
 - Pinça com dois dedos para zoom, botões de zoom
 - Papéis: branco, pautado, quadriculado, pontilhado
 - Adicionar, limpar e excluir páginas; desfazer/refazer (Ctrl/⌘+Z)
+- **Selecionar escrita (laço)**: contornar com a seta e mover, redimensionar, mudar cor, copiar/colar (outra página), duplicar e excluir
 - **Fotos na página**: inserir várias, mover, redimensionar (proporcional ou livre), girar, frente/trás, duplicar e excluir — dá para escrever por cima
 - **Importar PDF** ou imagem como páginas e escrever por cima
 - **Exportar PDF** (compartilha pela folha do iPad)
