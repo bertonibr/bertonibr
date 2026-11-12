@@ -382,17 +382,63 @@ function sizeView(v) {
   v.el.style.height = Math.round(w * v.page.h / PAGE_W) + 'px';
 }
 
-// budget = máximo de pixels do canvas (memória). A escrita ganha mais resolução
-// que o papel de fundo, para continuar nítida com zoom alto no celular.
-function canvasScale(v, budget = 10e6) {
-  const w = pageCssW(), h = w * v.page.h / PAGE_W;
-  const dpr = Math.min(window.devicePixelRatio || 1, 2, Math.sqrt(budget / (w * h)));
-  return { pw: Math.round(w * dpr), ph: Math.round(h * dpr) };
+/* Cada camada (papel, escrita) desenha uma "janela" da página em unidades
+   lógicas. Se a página inteira cabe no limite de memória (budget, em pixels),
+   a janela é a página toda; com zoom alto, só a parte visível (+ margem) é
+   desenhada em alta resolução e é redesenhada ao rolar. */
+function layerWindow(v, budget) {
+  const cw = pageCssW(), ch = cw * v.page.h / PAGE_W;
+  const want = Math.min(window.devicePixelRatio || 1, 2);
+  if (cw * ch * want * want <= budget) return { x0: 0, y0: 0, x1: PAGE_W, y1: v.page.h, dpr: want, partial: false };
+  const r = v.el.getBoundingClientRect(), sr = scroller.getBoundingClientRect();
+  const mx = sr.width * 0.25, my = sr.height * 0.35;
+  let left = Math.max(sr.left - mx, r.left), right = Math.min(sr.right + mx, r.right);
+  let top = Math.max(sr.top - my, r.top), bottom = Math.min(sr.bottom + my, r.bottom);
+  if (right - left < 1 || bottom - top < 1) { left = r.left; right = r.left + 1; top = r.top; bottom = r.top + 1; }
+  const s = PAGE_W / r.width;
+  const dpr = Math.min(want, Math.sqrt(budget / ((right - left) * (bottom - top))));
+  return { x0: (left - r.left) * s, x1: (right - r.left) * s, y0: (top - r.top) * s, y1: (bottom - r.top) * s, dpr, partial: true };
 }
 
-// zoom máximo: a página pode chegar a ~2400px de largura
-// (celular ≈ 6–7x; iPad continua em 3x)
-function maxZoom() { return Math.max(3, 2400 / baseWidth()); }
+function applyWindow(c, v, w) {
+  const cssPerUnit = pageCssW() / PAGE_W;
+  const pw = Math.max(1, Math.round((w.x1 - w.x0) * cssPerUnit * w.dpr));
+  const ph = Math.max(1, Math.round((w.y1 - w.y0) * cssPerUnit * w.dpr));
+  if (c.width !== pw) c.width = pw;
+  if (c.height !== ph) c.height = ph;
+  c._win = w;
+  c._k = pw / (w.x1 - w.x0); // pixels do canvas por unidade lógica
+  c.style.left = (w.x0 / PAGE_W * 100) + '%';
+  c.style.top = (w.y0 / v.page.h * 100) + '%';
+  c.style.width = ((w.x1 - w.x0) / PAGE_W * 100) + '%';
+  c.style.height = ((w.y1 - w.y0) / v.page.h * 100) + '%';
+}
+
+// passa a desenhar em coordenadas lógicas da página
+function setLogical(ctx, c) {
+  const k = c._k, w = c._win;
+  ctx.setTransform(k, 0, 0, k, -w.x0 * k, -w.y0 * k);
+}
+function clearCanvas(ctx, c) {
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  ctx.clearRect(0, 0, c.width, c.height);
+}
+
+// a janela da escrita ainda cobre a parte visível da página?
+function windowCovers(v) {
+  const w = v.ink && v.ink._win;
+  if (!w || !w.partial) return true;
+  const r = v.el.getBoundingClientRect(), sr = scroller.getBoundingClientRect();
+  const s = PAGE_W / r.width;
+  const vx0 = (Math.max(sr.left, r.left) - r.left) * s, vx1 = (Math.min(sr.right, r.right) - r.left) * s;
+  const vy0 = (Math.max(sr.top, r.top) - r.top) * s, vy1 = (Math.min(sr.bottom, r.bottom) - r.top) * s;
+  if (vx1 <= vx0 || vy1 <= vy0) return true; // página fora da tela
+  return vx0 >= w.x0 - 1 && vx1 <= w.x1 + 1 && vy0 >= w.y0 - 1 && vy1 <= w.y1 + 1;
+}
+
+// zoom máximo: a página pode chegar a ~2400px de largura no celular (≈ 6x);
+// no iPad, até 4x
+function maxZoom() { return Math.max(4, 2400 / baseWidth()); }
 
 function attach(v) {
   if (v.attached) return;
@@ -418,14 +464,11 @@ function detach(v) {
 
 function renderView(v) {
   if (!v.attached) return;
-  const { pw, ph } = canvasScale(v);
-  if (v.ink.width !== pw) v.ink.width = pw;
-  if (v.ink.height !== ph) v.ink.height = ph;
-  const bgs = canvasScale(v, 4e6);
-  if (v.bg.width !== bgs.pw) v.bg.width = bgs.pw;
-  if (v.bg.height !== bgs.ph) v.bg.height = bgs.ph;
+  applyWindow(v.ink, v, layerWindow(v, 10e6));
+  applyWindow(v.bg, v, layerWindow(v, 4e6));
   renderBg(v);
   renderInk(v);
+  if (ssel && ssel.v === v) renderFloat();
 }
 
 /* =========================================================
@@ -663,17 +706,16 @@ async function insertPhotos(files) {
 function renderBg(v) {
   const c = v.bg; if (!c) return;
   const ctx = c.getContext('2d');
-  const k = c.width / PAGE_W;
   ctx.setTransform(1, 0, 0, 1, 0, 0);
   ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, c.width, c.height);
-  ctx.setTransform(k, 0, 0, k, 0, 0);
+  setLogical(ctx, c);
   drawTemplate(ctx, v.page);
   if (v.page.bgId) {
-    const id = v.page.bgId;
+    const id = v.page.bgId, win = c._win;
     getBg(id).then((img) => {
-      if (!img || v.bg !== c || v.page.bgId !== id) return;
-      ctx.setTransform(1, 0, 0, 1, 0, 0);
-      ctx.drawImage(img, 0, 0, c.width, c.height);
+      if (!img || v.bg !== c || v.page.bgId !== id || c._win !== win) return;
+      setLogical(ctx, c);
+      ctx.drawImage(img, 0, 0, PAGE_W, v.page.h);
     });
   }
 }
@@ -703,10 +745,8 @@ function drawTemplate(ctx, page) {
 function renderInk(v) {
   const c = v.ink; if (!c) return;
   const ctx = c.getContext('2d');
-  ctx.setTransform(1, 0, 0, 1, 0, 0);
-  ctx.clearRect(0, 0, c.width, c.height);
-  const k = c.width / PAGE_W;
-  ctx.setTransform(k, 0, 0, k, 0, 0);
+  clearCanvas(ctx, c);
+  setLogical(ctx, c);
   const skip = ssel && ssel.v === v ? ssel.set : null; // selecionados ficam na camada flutuante
   for (const s of v.page.strokes) if (!skip || !skip.has(s)) drawStroke(ctx, s);
 }
@@ -745,12 +785,12 @@ function placeBox(el, b, page) {
 function renderFloat() {
   if (!ssel) return;
   const { v, float: c } = ssel;
-  const { pw, ph } = canvasScale(v);
-  c.width = pw; c.height = ph;
+  if (!v.ink) return;
+  applyWindow(c, v, v.ink._win);
   c.style.transform = '';
   const ctx = c.getContext('2d');
-  const k = c.width / PAGE_W;
-  ctx.setTransform(k, 0, 0, k, 0, 0);
+  clearCanvas(ctx, c);
+  setLogical(ctx, c);
   for (const s of ssel.strokes) drawStroke(ctx, s);
 }
 
@@ -838,7 +878,8 @@ function onSGestureMove(e) {
     let s = ((p.x - ax) * d0x + (p.y - ay) * d0y) / (d0x * d0x + d0y * d0y);
     s = Math.max(s, 20 / Math.min(b0.w, b0.h), 0.05);
     g.s = s;
-    float.style.transformOrigin = `${ax * k}px ${ay * k}px`;
+    const fw = float._win || { x0: 0, y0: 0 };
+    float.style.transformOrigin = `${(ax - fw.x0) * k}px ${(ay - fw.y0) * k}px`;
     float.style.transform = `scale(${s})`;
     const x0 = ax + (b0.x - ax) * s, y0 = ay + (b0.y - ay) * s;
     placeBox(el, { x: x0, y: y0, w: b0.w * s, h: b0.h * s }, v.page);
@@ -888,19 +929,17 @@ function startLasso(e, v) {
   e.preventDefault();
   try { v.el.setPointerCapture(e.pointerId); } catch (_) {}
   const pt = toLogical(v, e);
-  const { pw, ph } = canvasScale(v);
-  live.width = pw; live.height = ph;
+  applyWindow(live, v, v.ink._win);
   v.el.appendChild(live);
   lasso = { id: e.pointerId, v, pts: [pt.x, pt.y], len: 0, lx: pt.x, ly: pt.y };
 }
 
 function drawLasso() {
   const ctx = live.getContext('2d');
-  ctx.setTransform(1, 0, 0, 1, 0, 0);
-  ctx.clearRect(0, 0, live.width, live.height);
+  clearCanvas(ctx, live);
   if (!lasso) return;
-  const k = live.width / PAGE_W, p = lasso.pts;
-  ctx.setTransform(k, 0, 0, k, 0, 0);
+  const p = lasso.pts;
+  setLogical(ctx, live);
   ctx.beginPath();
   ctx.moveTo(p[0], p[1]);
   for (let i = 2; i < p.length; i += 2) ctx.lineTo(p[i], p[i + 1]);
@@ -1093,8 +1132,7 @@ function onPointerDown(e) {
   e.preventDefault();
   try { pageEl.setPointerCapture(e.pointerId); } catch (_) {}
   const pt = toLogical(v, e);
-  const { pw, ph } = canvasScale(v);
-  live.width = pw; live.height = ph;
+  applyWindow(live, v, v.ink._win);
   v.el.appendChild(live);
   const before = v.page.strokes.slice();
   if (prefs.tool === 'eraser') {
@@ -1136,8 +1174,7 @@ function onPointerUp(e) {
   c.v.page.strokes.push(c.stroke);
   if (c.v.ink) {
     const ctx = c.v.ink.getContext('2d');
-    const k = c.v.ink.width / PAGE_W;
-    ctx.setTransform(k, 0, 0, k, 0, 0);
+    setLogical(ctx, c.v.ink);
     drawStroke(ctx, c.stroke);
   }
   commitChange(c.v.page, c.before);
@@ -1155,10 +1192,9 @@ function scheduleLive() {
     liveRaf = 0;
     if (!cur) return;
     const ctx = live.getContext('2d');
-    ctx.setTransform(1, 0, 0, 1, 0, 0);
-    ctx.clearRect(0, 0, live.width, live.height);
-    const k = live.width / PAGE_W;
-    ctx.setTransform(k, 0, 0, k, 0, 0);
+    clearCanvas(ctx, live);
+    setLogical(ctx, live);
+    const k = live._k;
     if (cur.erase) {
       ctx.strokeStyle = 'rgba(80,80,80,.7)'; ctx.lineWidth = 1.5 / k * 1.5;
       ctx.beginPath(); ctx.arc(cur.last.x, cur.last.y, SIZES.eraser[prefs.size.eraser], 0, 7); ctx.stroke();
@@ -1571,6 +1607,14 @@ function bindUI() {
     if (cur && e.pointerId === cur.id) cancelStroke();
   });
   scroller.addEventListener('scroll', () => requestAnimationFrame(updatePageInd), { passive: true });
+  // com zoom alto só a parte visível fica desenhada: redesenha ao rolar
+  let winRaf = 0;
+  const refreshWindows = () => {
+    winRaf = 0;
+    if (cur || gest || sgest || lasso || pinch) { winRaf = requestAnimationFrame(refreshWindows); return; }
+    for (const v of S.views.values()) if (v.attached && !windowCovers(v)) renderView(v);
+  };
+  scroller.addEventListener('scroll', () => { if (!winRaf) winRaf = requestAnimationFrame(refreshWindows); }, { passive: true });
 
   let rzTimer;
   window.addEventListener('resize', () => {
