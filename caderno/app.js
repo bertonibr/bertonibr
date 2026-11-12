@@ -382,11 +382,17 @@ function sizeView(v) {
   v.el.style.height = Math.round(w * v.page.h / PAGE_W) + 'px';
 }
 
-function canvasScale(v) {
+// budget = máximo de pixels do canvas (memória). A escrita ganha mais resolução
+// que o papel de fundo, para continuar nítida com zoom alto no celular.
+function canvasScale(v, budget = 10e6) {
   const w = pageCssW(), h = w * v.page.h / PAGE_W;
-  const dpr = Math.min(window.devicePixelRatio || 1, 2, Math.sqrt(5e6 / (w * h)));
+  const dpr = Math.min(window.devicePixelRatio || 1, 2, Math.sqrt(budget / (w * h)));
   return { pw: Math.round(w * dpr), ph: Math.round(h * dpr) };
 }
+
+// zoom máximo: a página pode chegar a ~2400px de largura
+// (celular ≈ 6–7x; iPad continua em 3x)
+function maxZoom() { return Math.max(3, 2400 / baseWidth()); }
 
 function attach(v) {
   if (v.attached) return;
@@ -413,7 +419,11 @@ function detach(v) {
 function renderView(v) {
   if (!v.attached) return;
   const { pw, ph } = canvasScale(v);
-  for (const c of [v.bg, v.ink]) { if (c.width !== pw) c.width = pw; if (c.height !== ph) c.height = ph; }
+  if (v.ink.width !== pw) v.ink.width = pw;
+  if (v.ink.height !== ph) v.ink.height = ph;
+  const bgs = canvasScale(v, 4e6);
+  if (v.bg.width !== bgs.pw) v.bg.width = bgs.pw;
+  if (v.bg.height !== bgs.ph) v.bg.height = bgs.ph;
   renderBg(v);
   renderInk(v);
 }
@@ -1301,7 +1311,7 @@ function setTemplate(t, all) {
 
 /* ---------------- Zoom ---------------- */
 function setZoom(z, fx, fy, tx, ty) {
-  z = clamp(z, 0.5, 3);
+  z = clamp(z, 0.5, maxZoom());
   const old = S.zoom;
   if (Math.abs(z - old) < 0.001) return;
   if (fx === undefined) { fx = tx = scroller.clientWidth / 2; fy = ty = scroller.clientHeight / 2; }
@@ -1348,7 +1358,7 @@ scroller.addEventListener('touchmove', (e) => {
     const r = scroller.getBoundingClientRect();
     const c = centroid(f[0], f[1]);
     const d = Math.hypot(f[0].clientX - f[1].clientX, f[0].clientY - f[1].clientY);
-    pinch.scale = clamp(d / pinch.d0, 0.5 / pinch.z0, 3 / pinch.z0);
+    pinch.scale = clamp(d / pinch.d0, 0.5 / pinch.z0, maxZoom() / pinch.z0);
     pinch.c1 = { x: c.x - r.left, y: c.y - r.top };
     const dx = pinch.c1.x - pinch.c0.x, dy = pinch.c1.y - pinch.c0.y;
     pagesEl.style.transform = `translate(${dx}px, ${dy}px) scale(${pinch.scale})`;
