@@ -436,9 +436,9 @@ function windowCovers(v) {
   return vx0 >= w.x0 - 1 && vx1 <= w.x1 + 1 && vy0 >= w.y0 - 1 && vy1 <= w.y1 + 1;
 }
 
-// zoom máximo: a página pode chegar a ~2400px de largura no celular (≈ 6x);
-// no iPad, até 4x
-function maxZoom() { return Math.max(4, 2400 / baseWidth()); }
+// zoom máximo: celular (tela estreita) até 10x; iPad/PC até 4x.
+// Com zoom alto só a parte visível é desenhada, então a nitidez se mantém.
+function maxZoom() { return baseWidth() < 600 ? 10 : 4; }
 
 function attach(v) {
   if (v.attached) return;
