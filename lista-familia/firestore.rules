@@ -1,0 +1,17 @@
+rules_version = '2';
+// Regras do Cloud Firestore — cole no Console do Firebase (Firestore → Regras).
+// Só os e-mails abaixo podem ler e escrever as listas. Troque pelos de vocês.
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function familia() {
+      return request.auth != null
+        && request.auth.token.email_verified == true
+        && request.auth.token.email.lower() in [
+          'SEU_EMAIL@gmail.com',
+          'EMAIL_DA_ESPOSA@gmail.com'
+        ];
+    }
+    match /listas/{id} { allow read, write: if familia(); }
+    match /itens/{id}  { allow read, write: if familia(); }
+  }
+}

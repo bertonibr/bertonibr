@@ -1,0 +1,128 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Lista Família</title>
+<meta name="description" content="Listas compartilhadas da família: mercado, viagem e o que mais precisar.">
+<meta name="theme-color" content="#2f9e6e">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="Lista Família">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icon-192.png">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<!-- ============ ENTRAR ============ -->
+<section id="telaEntrar" class="tela centro" hidden>
+  <img src="icon-192.png" alt="" class="logo">
+  <h1>Lista Família</h1>
+  <p>Listas de mercado, de viagem e o que mais precisar — sempre iguais no seu celular e no da sua família.</p>
+  <button id="btnEntrar" class="btn primario grande">Entrar com Google</button>
+  <p id="msgEntrar" class="aviso"></p>
+</section>
+
+<!-- ============ SEM CONFIGURAÇÃO ============ -->
+<section id="telaConfig" class="tela centro" hidden>
+  <img src="icon-192.png" alt="" class="logo">
+  <h1>Quase pronto</h1>
+  <p>Falta colar a configuração do Firebase em <code>config.js</code>.</p>
+</section>
+
+<!-- ============ CARREGANDO ============ -->
+<section id="telaCarregando" class="tela centro">
+  <img src="icon-192.png" alt="" class="logo">
+  <p>Carregando…</p>
+</section>
+
+<!-- ============ INÍCIO (LISTAS) ============ -->
+<section id="telaInicio" class="tela" hidden>
+  <header class="topo">
+    <h1>Lista Família</h1>
+    <span class="status" data-st="ok" title="Sincronizado"></span>
+    <button id="btnMenuInicio" class="icone" aria-label="Menu">⋮</button>
+  </header>
+  <main class="conteudo">
+    <div id="listas" class="listas"></div>
+    <p id="semListas" class="vazio" hidden>Nenhuma lista ainda.<br>Toque em <b>+ Nova lista</b> para começar.</p>
+  </main>
+  <button id="btnNovaLista" class="fab">+ Nova lista</button>
+</section>
+
+<!-- ============ UMA LISTA ============ -->
+<section id="telaLista" class="tela" hidden>
+  <header class="topo">
+    <button id="btnVoltar" class="icone" aria-label="Voltar">‹</button>
+    <h1 id="tituloLista" class="titulo-lista" title="Toque para renomear"></h1>
+    <span class="status" data-st="ok" title="Sincronizado"></span>
+    <button id="btnMenuLista" class="icone" aria-label="Opções da lista">⋮</button>
+  </header>
+  <form id="formItem" class="adicionar" autocomplete="off">
+    <input id="novoItem" type="text" placeholder="Adicionar item…" list="sugestoes"
+           enterkeyhint="send" autocapitalize="sentences" maxlength="200" aria-label="Novo item">
+    <button class="btn primario" aria-label="Adicionar">+</button>
+  </form>
+  <datalist id="sugestoes"></datalist>
+  <main class="conteudo">
+    <ul id="pendentes" class="itens"></ul>
+    <p id="listaVazia" class="vazio" hidden>Lista vazia. Digite acima e toque em <b>+</b> (ou Enter).</p>
+    <section id="secFeitos" hidden>
+      <h2 class="sub"><span id="tituloFeitos">Marcados</span>
+        <button id="btnLimparFeitos" class="link">Apagar marcados</button></h2>
+      <ul id="feitos" class="itens"></ul>
+    </section>
+  </main>
+</section>
+
+<!-- ============ JANELAS ============ -->
+<dialog id="dlgLista">
+  <form method="dialog" class="janela">
+    <h2 id="dlgListaTitulo">Nova lista</h2>
+    <input id="dlgListaNome" type="text" placeholder="Nome da lista" maxlength="60" required>
+    <div class="tipos" role="radiogroup">
+      <label><input type="radio" name="tipo" value="mercado" checked><span>🛒 Mercado</span></label>
+      <label><input type="radio" name="tipo" value="viagem"><span>🧳 Viagem</span></label>
+      <label><input type="radio" name="tipo" value="geral"><span>📝 Geral</span></label>
+    </div>
+    <div class="botoes">
+      <button value="cancel" formnovalidate class="btn">Cancelar</button>
+      <button value="ok" class="btn primario">Salvar</button>
+    </div>
+  </form>
+</dialog>
+
+<dialog id="dlgItem">
+  <form method="dialog" class="janela">
+    <h2>Editar item</h2>
+    <input id="dlgItemTexto" type="text" maxlength="200" required>
+    <p id="dlgItemQuem" class="nota"></p>
+    <div class="botoes">
+      <button value="del" formnovalidate class="btn perigo">Excluir</button>
+      <span class="espaco"></span>
+      <button value="cancel" formnovalidate class="btn">Cancelar</button>
+      <button value="ok" class="btn primario">Salvar</button>
+    </div>
+  </form>
+</dialog>
+
+<dialog id="dlgMenu">
+  <form method="dialog" class="janela menu">
+    <h2 id="dlgMenuTitulo"></h2>
+    <div id="dlgMenuOpcoes" class="opcoes"></div>
+    <button value="cancel" class="btn">Fechar</button>
+  </form>
+</dialog>
+
+<div id="toast" class="toast" hidden><span id="toastMsg"></span><button id="toastAcao" class="link" hidden></button></div>
+
+<script src="config.js"></script>
+<script src="lib/firebase-app-compat.js"></script>
+<script src="lib/firebase-auth-compat.js"></script>
+<script src="lib/firebase-firestore-compat.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
