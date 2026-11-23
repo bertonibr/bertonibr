@@ -181,9 +181,21 @@ function escutar() {
   }, erroLeitura));
 }
 
-/* Modo "comprar" (listas de Mercado): marcado = comprar, desmarcado = não precisa.
+/* Em todas as listas: marcado = precisa (comprar/levar/fazer) e fica em cima;
+   desmarcado = não precisa, fica embaixo (pode ocultar).
+   (Antes só o Mercado era assim.) Textos de cada tipo em ROTULOS. */
+const ROTULOS = {
+  mercado: { topo: '🛒 Para comprar', baixo: 'Não precisa comprar', card: 'para comprar', nada: 'nada para comprar',
+    vazio: 'Nada para comprar. Marque abaixo o que está faltando.', desmarcar: 'Desmarcar tudo (nada para comprar)' },
+  viagem: { topo: '🧳 Para levar', baixo: 'Não precisa levar', card: 'para levar', nada: 'nada para levar',
+    vazio: 'Nada para levar. Marque abaixo o que vai na mala.', desmarcar: 'Desmarcar tudo (nada para levar)' },
+  geral: { topo: '📝 Marcados', baixo: 'Desmarcados', card: 'marcados', nada: 'nada marcado',
+    vazio: 'Nada marcado. Marque abaixo o que precisa.', desmarcar: 'Desmarcar tudo' },
+};
+const rot = (l) => ROTULOS[l && l.tipo] || ROTULOS.geral;
+/*
    Nos outros tipos: marcado = feito. O campo no banco é o mesmo ("feito"). */
-const modoComprar = (l) => !!l && l.tipo === 'mercado';
+const modoComprar = (l) => !!l;
 const ATIVO = (l) => modoComprar(l);                       // valor de "feito" que significa "na lista para fazer/comprar"
 const ativo = (it, l) => !!it.feito === ATIVO(l);
 let ocultarNaoPrecisa = false;
@@ -250,7 +262,7 @@ function desmarcarTudo(lista) {
   const mexer = itensDa(lista.id).filter((i) => i.feito || (comprar && (i.qtd || 1) > 1));
   const n = marcados.length;
   const pergunta = comprar
-    ? `Limpar a lista "${lista.nome}"?\n\n${n} ${n === 1 ? 'item marcado para comprar será desmarcado' : 'itens marcados para comprar serão desmarcados'}. Você pode desfazer logo em seguida.`
+    ? `Limpar a lista "${lista.nome}"?\n\n${n} ${n === 1 ? 'item marcado será desmarcado' : 'itens marcados serão desmarcados'}. Você pode desfazer logo em seguida.`
     : `Desmarcar ${n} ${n === 1 ? 'item' : 'itens'} da lista "${lista.nome}"?`;
   if (!confirm(pergunta)) return;
   const antes = mexer.map((i) => ({ id: i.id, feito: !!i.feito, qtd: i.qtd || 1, feitoPor: i.feitoPor || null }));
@@ -477,7 +489,7 @@ function menuLista() {
     { texto: '📋  Adicionar vários itens (colar lista)', fn: dialogoColar },
     { texto: '✏️  Renomear / mudar tipo', fn: () => dialogoLista(l) },
     { texto: '↗️  Compartilhar como texto', fn: () => compartilhar(l) },
-    { texto: modoComprar(l) ? '↺  Desmarcar tudo (nada para comprar)' : '↺  Desmarcar tudo', fn: () => desmarcarTudo(l) },
+    { texto: '↺  ' + rot(l).desmarcar, fn: () => desmarcarTudo(l) },
     ...(modoComprar(l) ? [] : [{ texto: '🧹  Limpar (apagar marcados)', fn: () => apagarMarcados(l) }]),
     { texto: '⧉  Duplicar lista', fn: () => duplicarLista(l) },
     { texto: '🗑  Excluir lista', fn: () => excluirLista(l), perigo: true },
@@ -539,7 +551,7 @@ function renderInicio() {
     const barra = el('i');
     barra.style.width = c.tot ? (100 * c.feitos / c.tot) + '%' : '0';
     const texto = modoComprar(l)
-      ? (c.feitos ? `${c.feitos} para comprar` : (c.tot ? 'nada para comprar' : 'vazia'))
+      ? (c.feitos ? `${c.feitos} ${rot(l).card}` : (c.tot ? rot(l).nada : 'vazia'))
       : (c.tot ? (falta ? `faltam ${falta}` : 'tudo ok ✓') : 'vazia');
     const card = el('button', { class: 'card', 'data-id': l.id },
       el('span', { class: 'ico', text: (TIPOS[l.tipo] || TIPOS.geral).icone }),
@@ -663,11 +675,11 @@ function renderLista() {
   };
   const topo = [];
   if (comprar) {
-    const limpar = el('button', { class: 'link', type: 'button', text: 'Limpar', title: 'Desmarcar tudo (nada para comprar)' });
+    const limpar = el('button', { class: 'link', type: 'button', text: 'Limpar', title: rot(l).desmarcar });
     limpar.onclick = () => desmarcarTudo(l);
     limpar.hidden = !pend.length;
-    topo.push(el('h2', { class: 'titulo-bloco' }, el('span', { text: `🛒 Para comprar (${pend.length})` }), limpar));
-    if (!pend.length && its.length) topo.push(el('p', { class: 'vazio pouco', text: 'Nada para comprar. Marque abaixo o que está faltando.' }));
+    topo.push(el('h2', { class: 'titulo-bloco' }, el('span', { text: `${rot(l).topo} (${pend.length})` }), limpar));
+    if (!pend.length && its.length) topo.push(el('p', { class: 'vazio pouco', text: rot(l).vazio }));
   }
   $('#pendentes').replaceChildren(...topo, ...agrupar(pend));
   $('#btnPadrao').hidden = !PADRAO[l.tipo];
@@ -675,7 +687,7 @@ function renderLista() {
   $('#feitos').replaceChildren(...(esconder ? [] : (comprar ? agrupar(feitos) : [el('ul', { class: 'itens' }, ...feitos.map(linhaItem))])));
   $('#listaVazia').hidden = its.length > 0;
   $('#secFeitos').hidden = feitos.length === 0;
-  $('#tituloFeitos').textContent = comprar ? `Não precisa comprar (${feitos.length})` : `Marcados (${feitos.length})`;
+  $('#tituloFeitos').textContent = comprar ? `${rot(l).baixo} (${feitos.length})` : `Marcados (${feitos.length})`;
   $('#btnLimparFeitos').textContent = comprar ? (esconder ? 'Mostrar' : 'Ocultar') : 'Limpar';
   S.recemAdicionado = null;
 

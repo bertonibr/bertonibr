@@ -1,5 +1,5 @@
 /* Service worker: o app abre mesmo sem internet. */
-const CACHE = 'lista-familia-v12';
+const CACHE = 'lista-familia-v13';
 const SHELL = [
   './', './index.html', './app.js', './config.js', './padrao.js', './style.css', './manifest.webmanifest',
   './icon-192.png', './icon-512.png', './apple-touch-icon.png',
