@@ -146,6 +146,11 @@ dialog::backdrop { background: rgba(20,30,25,.35); }
 .nota { margin: -6px 0 0; color: var(--suave); font-size: 14px; }
 .nota:empty { display: none; }
 
+.janela textarea { width: 100%; padding: 12px 14px; border: 1.5px solid var(--linha); border-radius: 12px; outline: none; resize: vertical; font: inherit; font-size: 17px; color: var(--texto); background: var(--cartao); }
+.janela textarea:focus { border-color: var(--cor); }
+.colar { max-width: 720px; width: 100%; margin: -6px auto 0; padding: 0 max(16px, env(safe-area-inset-right)) 0 max(16px, env(safe-area-inset-left)); }
+.colar .link { font-size: 15px; padding: 4px 0; }
+
 .tipos { display: flex; gap: 8px; flex-wrap: wrap; }
 .tipos label { flex: 1; }
 .tipos input { position: absolute; opacity: 0; pointer-events: none; }

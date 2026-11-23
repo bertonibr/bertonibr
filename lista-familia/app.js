@@ -267,6 +267,50 @@ async function compartilhar(lista) {
 }
 
 /* ---------- Ações: itens ---------- */
+// Separa um texto colado (WhatsApp, notas…) em itens: uma linha por item,
+// ou separados por vírgula/ponto e vírgula. Tira marcadores como "-", "•", "1.", "☐".
+function separarItens(texto) {
+  return texto
+    .split(/\r?\n|;|,(?!\d)/)
+    .map((t) => t.replace(/^\s*(?:[-–—*•·▢☐□✔✓✅🛒]+|\d+[.)-])\s*/u, '').trim().replace(/\s+/g, ' '))
+    .filter((t) => t && t.length <= 200);
+}
+
+function adicionarVarios(texto) {
+  if (!S.atual) return 0;
+  const linhas = separarItens(texto);
+  const existentes = new Map(itensDa(S.atual).map((i) => [norm(i.texto), i]));
+  const ops = [];
+  let novos = 0, ordem = Date.now();
+  for (const t of linhas) {
+    const k = norm(t);
+    const ex = existentes.get(k);
+    if (ex && !ex.feito) continue;            // já está pendente
+    const o = ordem++;
+    if (ex) ops.push((b) => b.update(db.collection('itens').doc(ex.id), { feito: false, ordem: o }));
+    else {
+      const ref = db.collection('itens').doc();
+      ops.push((b) => b.set(ref, { listaId: S.atual, texto: t, feito: false, ordem: o, criadoPor: primeiroNome(), criadoEm: Date.now() }));
+    }
+    existentes.set(k, { feito: false });
+    novos++;
+  }
+  if (novos) { const id = S.atual; ops.push((b) => tocarLista(b, id)); emLotes(ops); }
+  const rep = linhas.length - novos;
+  toast(novos ? `${novos} ${novos === 1 ? 'item adicionado' : 'itens adicionados'}${rep ? ` (${rep} já estavam)` : ''}` : 'Todos esses itens já estão na lista');
+  return novos;
+}
+
+async function dialogoColar() {
+  const d = $('#dlgColar');
+  $('#dlgColarTexto').value = '';
+  d.returnValue = '';
+  d.showModal();
+  $('#dlgColarTexto').focus();
+  await new Promise((r) => d.addEventListener('close', r, { once: true }));
+  if (d.returnValue === 'ok') adicionarVarios($('#dlgColarTexto').value);
+}
+
 function adicionarItem(texto) {
   texto = texto.trim().replace(/\s+/g, ' ');
   if (!texto || !S.atual) return;
@@ -334,6 +378,7 @@ function menuLista() {
   const l = S.listas.get(S.atual);
   if (!l) return;
   menu(l.nome, [
+    { texto: '📋  Adicionar vários itens (colar lista)', fn: dialogoColar },
     { texto: '✏️  Renomear / mudar tipo', fn: () => dialogoLista(l) },
     { texto: '↗️  Compartilhar como texto', fn: () => compartilhar(l) },
     { texto: '↺  Desmarcar tudo', fn: () => desmarcarTudo(l) },
@@ -465,6 +510,16 @@ function ligarEventos() {
     inp.value = '';
     inp.focus();
   };
+  $('#btnColar').onclick = dialogoColar;
+  // Colar no campo um texto com várias linhas → adiciona tudo de uma vez
+  $('#novoItem').addEventListener('paste', (e) => {
+    const t = (e.clipboardData || window.clipboardData).getData('text');
+    if (t && /\r?\n/.test(t.trim())) {
+      e.preventDefault();
+      adicionarVarios(t);
+      $('#novoItem').value = '';
+    }
+  });
   // Enter no diálogo de lista não deve fechar sem tipo
   document.addEventListener('keydown', (e) => {
     if (e.key === 'Escape' && S.atual && !$('dialog[open]') && document.activeElement !== $('#novoItem')) voltar();

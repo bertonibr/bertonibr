@@ -66,6 +66,7 @@
            enterkeyhint="send" autocapitalize="sentences" maxlength="200" aria-label="Novo item">
     <button class="btn primario" aria-label="Adicionar">+</button>
   </form>
+  <div class="colar"><button id="btnColar" class="link" type="button">📋 Colar uma lista de itens</button></div>
   <datalist id="sugestoes"></datalist>
   <main class="conteudo">
     <ul id="pendentes" class="itens"></ul>
@@ -105,6 +106,18 @@
       <span class="espaco"></span>
       <button value="cancel" formnovalidate class="btn">Cancelar</button>
       <button value="ok" class="btn primario">Salvar</button>
+    </div>
+  </form>
+</dialog>
+
+<dialog id="dlgColar">
+  <form method="dialog" class="janela">
+    <h2>Adicionar vários itens</h2>
+    <p class="nota">Cole ou digite um item por linha (ou separados por vírgula).</p>
+    <textarea id="dlgColarTexto" rows="9" placeholder="Arroz&#10;Feijão&#10;Leite&#10;Café"></textarea>
+    <div class="botoes">
+      <button value="cancel" formnovalidate class="btn">Cancelar</button>
+      <button value="ok" class="btn primario">Adicionar</button>
     </div>
   </form>
 </dialog>
