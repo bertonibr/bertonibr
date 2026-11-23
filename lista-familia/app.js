@@ -282,11 +282,12 @@ function textoDaLista(lista) {
   const its = ordenar(itensDa(lista.id));
   const linhas = [`${TIPOS[lista.tipo].icone} ${lista.nome}`];
   const q = (i) => ((i.qtd || 1) > 1 ? `${i.qtd}x ` : '');
+  const o = (i) => (i.obs ? ` (${i.obs})` : '');
   if (modoComprar(lista)) {
-    for (const i of its.filter((x) => ativo(x, lista))) linhas.push('▢ ' + q(i) + i.texto);
+    for (const i of its.filter((x) => ativo(x, lista))) linhas.push('▢ ' + q(i) + i.texto + o(i));
   } else {
-    for (const i of its.filter((x) => !x.feito)) linhas.push('▢ ' + q(i) + i.texto);
-    for (const i of its.filter((x) => x.feito)) linhas.push('✔ ' + q(i) + i.texto);
+    for (const i of its.filter((x) => !x.feito)) linhas.push('▢ ' + q(i) + i.texto + o(i));
+    for (const i of its.filter((x) => x.feito)) linhas.push('✔ ' + q(i) + i.texto + o(i));
   }
   return linhas.join('\n');
 }
@@ -421,6 +422,7 @@ async function editarItem(it) {
   const d = $('#dlgItem');
   $('#dlgItemTexto').value = it.texto;
   $('#dlgItemQtd').value = it.qtd || 1;
+  $('#dlgItemObs').value = it.obs || '';
   $('#dlgItemQuem').textContent = it.criadoPor ? `Adicionado por ${it.criadoPor}` : '';
   d.returnValue = '';
   d.showModal();
@@ -435,6 +437,8 @@ async function editarItem(it) {
     const mud = {};
     if (texto && texto !== it.texto) mud.texto = texto;
     if (qtd !== (it.qtd || 1)) mud.qtd = qtd;
+    const obs = $('#dlgItemObs').value.trim().replace(/\s+/g, ' ').slice(0, 120);
+    if (obs !== (it.obs || '')) mud.obs = obs;
     if (Object.keys(mud).length) gravar(db.collection('itens').doc(it.id).update(mud));
   }
 }
@@ -501,6 +505,8 @@ window.addEventListener('popstate', () => {
 const ordenar = (its) => its.sort((a, b) => (a.ordem || 0) - (b.ordem || 0));
 
 function render() {
+  if (S.arrastando) { S.renderPendente = true; return; }   // não redesenha no meio de um arrasto
+  S.renderPendente = false;
   atualizarStatus();
   if (!S.user) return;
   if (!S.carregado.listas || !S.carregado.itens) return mostrarTela('telaCarregando');
@@ -554,13 +560,74 @@ function qtdEl(it) {
   return sel;
 }
 
+// Arrastar o item da direita para a esquerda abre a caixinha de detalhe.
+function arrastarParaDetalhe(li, it) {
+  let x0 = 0, y0 = 0, dx = 0, ativo = false, horizontal = false, id = null;
+  li.addEventListener('pointerdown', (e) => {
+    if (e.button || e.target.closest('.qtd, .edit')) return;
+    x0 = e.clientX; y0 = e.clientY; dx = 0; ativo = true; horizontal = false; id = e.pointerId;
+    S.arrastando = true;               // segura atualizações da tela enquanto o dedo está no item
+  });
+  li.addEventListener('pointermove', (e) => {
+    if (!ativo || e.pointerId !== id) return;
+    const ddx = e.clientX - x0, ddy = e.clientY - y0;
+    if (!horizontal) {
+      if (Math.abs(ddy) > 12 && Math.abs(ddy) > Math.abs(ddx)) { ativo = false; soltar(); return; }   // rolando a tela
+      if (ddx < -12 && Math.abs(ddx) > Math.abs(ddy)) { horizontal = true; try { li.setPointerCapture(id); } catch (_) {} li.classList.add('arrastando'); }
+      else return;
+    }
+    dx = Math.max(-120, Math.min(0, ddx));
+    li.style.transform = `translateX(${dx}px)`;
+    li.classList.toggle('pronto', dx < -70);
+  });
+  const soltar = () => {
+    if (!S.arrastando) return;
+    S.arrastando = false;
+    if (S.renderPendente) setTimeout(render, 0);   // depois do clique ser tratado
+  };
+  li.addEventListener('pointerup', () => {
+    if (!ativo) return soltar();
+    ativo = false;
+    if (!horizontal) return soltar();
+    soltar();
+    li._arrastou = true;
+    setTimeout(() => { li._arrastou = false; }, 400);
+    li.style.transform = '';
+    li.classList.remove('arrastando', 'pronto');
+    if (dx < -70) editarDetalhe(it);
+  });
+  li.addEventListener('pointercancel', () => {
+    ativo = false; li.style.transform = ''; li.classList.remove('arrastando', 'pronto');
+    soltar();
+  });
+}
+
+async function editarDetalhe(it) {
+  const d = $('#dlgObs');
+  $('#dlgObsTitulo').textContent = `Detalhe — ${it.texto}`;
+  const inp = $('#dlgObsTexto');
+  inp.value = it.obs || '';
+  $('#dlgObsRemover').hidden = !it.obs;
+  d.returnValue = '';
+  d.showModal();
+  inp.focus();
+  await new Promise((r) => d.addEventListener('close', r, { once: true }));
+  if (d.returnValue === 'ok' || d.returnValue === 'del') {
+    const obs = d.returnValue === 'del' ? '' : inp.value.trim().replace(/\s+/g, ' ').slice(0, 120);
+    if (obs !== (it.obs || '')) gravar(db.collection('itens').doc(it.id).update({ obs }));
+  }
+}
+
 function linhaItem(it) {
   const li = el('li', { class: 'item' + (it.feito ? ' feito' : '') + (S.recemAdicionado === it.id ? ' novo' : ''), 'data-id': it.id },
     el('span', { class: 'chk', role: 'checkbox', ariaChecked: String(!!it.feito) }),
-    el('span', { class: 'txt', text: it.texto }),
+    el('span', { class: 'txt' }, el('span', { class: 'nome', text: it.texto }),
+      it.obs ? el('span', { class: 'obs', text: it.obs }) : null),
     qtdEl(it),
     el('button', { class: 'edit', text: '✎', ariaLabel: 'Editar ' + it.texto }));
+  arrastarParaDetalhe(li, it);
   li.onclick = (e) => {
+    if (li._arrastou) { li._arrastou = false; return; }
     if (e.target.closest('.qtd')) { /* toque na quantidade não marca o item */ }
     else if (e.target.closest('.edit')) editarItem(it);
     else alternarItem(it);
@@ -649,6 +716,25 @@ function ligarEventos() {
     inp.focus();
   };
   $('#btnColar').onclick = dialogoColar;
+  // Segurança: ao soltar o dedo em qualquer lugar, libera as atualizações da tela
+  const liberar = () => setTimeout(() => {
+    if (!S.arrastando) return;
+    S.arrastando = false;
+    if (S.renderPendente) render();
+  }, 0);
+  window.addEventListener('pointerup', liberar);
+  window.addEventListener('pointercancel', liberar);
+  window.addEventListener('blur', liberar);
+  // Enter num campo das janelas = Salvar (evita acionar o 1º botão, como "Excluir")
+  for (const d of $$('dialog')) {
+    d.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' && e.target.matches('input')) {
+        e.preventDefault();
+        if (e.target.form && !e.target.form.reportValidity()) return;
+        d.close('ok');
+      }
+    });
+  }
   $('#btnPadrao').onclick = dialogoPadrao;
   $('#dlgPadraoTodos').onclick = () => {
     const cbs = [...$('#dlgPadraoItens').querySelectorAll('input:not(:disabled)')];

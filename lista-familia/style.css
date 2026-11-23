@@ -118,7 +118,12 @@ input { font: inherit; font-size: 17px; color: var(--texto); }
   flex: none; width: 26px; height: 26px; margin: 0 12px 0 16px; border-radius: 8px;
   border: 2px solid #b7c2bc; background: var(--cartao); position: relative; pointer-events: none;
 }
-.item .txt { flex: 1; padding: 12px 0; word-break: break-word; }
+.item .txt { flex: 1; padding: 12px 0; word-break: break-word; display: flex; flex-direction: column; }
+.item .obs { font-size: 14px; color: var(--suave); font-style: italic; font-weight: 400; margin-top: 1px; }
+.item .obs::before { content: "💬 "; font-style: normal; }
+.item { touch-action: pan-y; position: relative; transition: transform .18s ease, background .15s; }
+.item.arrastando { transition: none; background: var(--cor-clara); }
+.item.pronto { background: #fff4cc; }
 select.qtd {
   flex: none; width: 44px; height: 40px; margin-left: 8px; padding: 0;
   border: 1.5px solid var(--linha); border-radius: 10px; background: var(--cartao);
