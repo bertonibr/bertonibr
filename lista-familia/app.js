@@ -675,20 +675,19 @@ function renderLista() {
   };
   const topo = [];
   if (comprar) {
-    const limpar = el('button', { class: 'link', type: 'button', text: 'Limpar', title: rot(l).desmarcar });
-    limpar.onclick = () => desmarcarTudo(l);
-    limpar.hidden = !pend.length;
-    topo.push(el('h2', { class: 'titulo-bloco' }, el('span', { text: `${rot(l).topo} (${pend.length})` }), limpar));
+    topo.push(el('h2', { class: 'titulo-bloco' }, el('span', { text: `${rot(l).topo} (${pend.length})` })));
     if (!pend.length && its.length) topo.push(el('p', { class: 'vazio pouco', text: rot(l).vazio }));
   }
   $('#pendentes').replaceChildren(...topo, ...agrupar(pend));
   $('#btnPadrao').hidden = !PADRAO[l.tipo];
-  const esconder = comprar && ocultarNaoPrecisa;
+  const esconder = false;   // "Ocultar" foi substituído por "Limpar"
   $('#feitos').replaceChildren(...(esconder ? [] : (comprar ? agrupar(feitos) : [el('ul', { class: 'itens' }, ...feitos.map(linhaItem))])));
   $('#listaVazia').hidden = its.length > 0;
-  $('#secFeitos').hidden = feitos.length === 0;
+  $('#secFeitos').hidden = comprar ? its.length === 0 : feitos.length === 0;
   $('#tituloFeitos').textContent = comprar ? `${rot(l).baixo} (${feitos.length})` : `Marcados (${feitos.length})`;
-  $('#btnLimparFeitos').textContent = comprar ? (esconder ? 'Mostrar' : 'Ocultar') : 'Limpar';
+  $('#btnLimparFeitos').textContent = 'Limpar';
+  $('#btnLimparFeitos').title = rot(l).desmarcar;
+  $('#btnLimparFeitos').hidden = comprar && !pend.length;
   S.recemAdicionado = null;
 
   // Sugestões: itens já usados em listas do mesmo tipo e que não estão na lista aqui
@@ -719,11 +718,8 @@ function ligarEventos() {
   $('#btnLimparFeitos').onclick = () => {
     const l = S.listas.get(S.atual);
     if (!l) return;
-    if (modoComprar(l)) {
-      ocultarNaoPrecisa = !ocultarNaoPrecisa;
-      try { localStorage.setItem('listaFamilia.ocultar', ocultarNaoPrecisa ? '1' : '0'); } catch (_) {}
-      render();
-    } else apagarMarcados(l);
+    if (modoComprar(l)) desmarcarTudo(l);
+    else apagarMarcados(l);
   };
   $('#formItem').onsubmit = (e) => {
     e.preventDefault();
