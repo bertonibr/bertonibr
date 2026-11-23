@@ -1,5 +1,7 @@
-/* Service worker: o app abre mesmo sem internet. */
-const CACHE = 'lista-familia-v18';
+/* Service worker: o app abre mesmo sem internet.
+   Cada versão guarda TODOS os arquivos juntos (cache-first) e só troca de
+   versão inteira, para nunca misturar arquivos antigos e novos. */
+const CACHE = 'lista-familia-v19';
 const SHELL = [
   './', './index.html', './app.js', './compras.js', './config.js', './padrao.js', './style.css', './manifest.webmanifest',
   './icon-192.png', './icon-512.png', './apple-touch-icon.png',
@@ -10,33 +12,29 @@ self.addEventListener('install', (e) => {
   e.waitUntil((async () => {
     const c = await caches.open(CACHE);
     await c.addAll(SHELL.map((u) => new Request(u, { cache: 'reload' })));
-    self.skipWaiting();
+    await self.skipWaiting();
   })());
 });
 
 self.addEventListener('activate', (e) => {
   e.waitUntil((async () => {
-    for (const k of await caches.keys()) if (k !== CACHE) await caches.delete(k);
+    // apaga só versões antigas DESTE app (o Caderno usa o mesmo site)
+    for (const k of await caches.keys()) if (k.startsWith('lista-familia-') && k !== CACHE) await caches.delete(k);
     await self.clients.claim();
   })());
 });
 
-/* Responde do cache e atualiza em segundo plano (stale-while-revalidate).
-   Pedidos ao Google/Firebase (outro domínio) não passam por aqui. */
 self.addEventListener('fetch', (e) => {
   const req = e.request;
   if (req.method !== 'GET') return;
   const url = new URL(req.url);
-  if (url.origin !== location.origin) return;
+  if (url.origin !== location.origin || !url.pathname.startsWith(new URL('./', self.registration.scope).pathname)) return;
+  if (url.pathname.endsWith('/reset.html')) return;   // página de socorro sempre da internet
   e.respondWith((async () => {
     const c = await caches.open(CACHE);
     const hit = await c.match(req, { ignoreSearch: true });
-    const net = fetch(req).then((res) => {
-      if (res && res.ok) c.put(req, res.clone());
-      return res;
-    }).catch(() => null);
-    if (hit) { e.waitUntil(net); return hit; }
-    const res = await net;
-    return res || (req.mode === 'navigate' ? c.match('./index.html') : Response.error());
+    if (hit) return hit;
+    try { return await fetch(req); }
+    catch (_) { return (req.mode === 'navigate' && await c.match('./index.html')) || Response.error(); }
   })());
 });

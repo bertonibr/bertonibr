@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Lista Família — destravar</title>
+<style>
+  body { margin: 0; font: 17px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: #f6f7f5; color: #1f2a24;
+    display: grid; place-items: center; min-height: 100vh; padding: 24px; box-sizing: border-box; text-align: center; }
+  a { display: inline-block; margin-top: 16px; padding: 12px 22px; border-radius: 12px; background: #2f9e6e; color: #fff; text-decoration: none; font-weight: 700; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Destravando o app…</h1>
+  <p id="msg">Apagando só a cópia offline do Lista Família.<br>Suas listas, o login e o Caderno não são afetados.</p>
+  <a href="./" id="voltar" hidden>Abrir o Lista Família</a>
+</main>
+<script>
+(async () => {
+  try {
+    const regs = await navigator.serviceWorker.getRegistrations();
+    for (const r of regs) if (r.scope.includes('/lista-familia/')) await r.unregister();
+  } catch (_) {}
+  try { for (const k of await caches.keys()) if (k.startsWith('lista-familia-')) await caches.delete(k); } catch (_) {}
+  document.getElementById('msg').textContent = 'Pronto! Pode abrir o app de novo.';
+  const a = document.getElementById('voltar');
+  a.href = './?v=' + Date.now();
+  a.hidden = false;
+})();
+</script>
+</body>
+</html>

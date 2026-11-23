@@ -170,24 +170,51 @@ function erroLeitura(err) {
   $('#btnEntrar').onclick = () => auth.signOut().then(entrarGoogle);
 }
 
+// Erro inesperado na tela: em vez de travar, mostra aviso com "Recarregar o app"
+let erroMostrado = false;
+function seguro(fn) {
+  try { fn(); } catch (e) {
+    console.error(e);
+    if (!erroMostrado) { erroMostrado = true; mostrarTravado('Algo deu errado ao mostrar as listas.'); }
+  }
+}
+
+function mostrarTravado(msg) {
+  const box = $('#travado');
+  if (!box) return;
+  $('#travadoMsg').textContent = msg || 'Está demorando mais que o normal.';
+  box.hidden = false;
+}
+
+// Recarrega o app do zero: apaga só a cópia offline do app (não apaga listas,
+// login nem dados do Caderno) e busca a versão nova.
+async function recarregarApp() {
+  try {
+    const regs = await navigator.serviceWorker.getRegistrations();
+    for (const r of regs) if (r.scope.includes('/lista-familia/')) await r.unregister();
+  } catch (_) {}
+  try { for (const k of await caches.keys()) if (k.startsWith('lista-familia-')) await caches.delete(k); } catch (_) {}
+  location.replace(location.pathname + '?v=' + Date.now());
+}
+
 function escutar() {
   pararEscuta();
   const opt = { includeMetadataChanges: true };
   S.unsub.push(db.collection('listas').onSnapshot(opt, (snap) => {
     S.listas = new Map(snap.docs.map((d) => [d.id, { id: d.id, ...d.data() }]));
     S.verListas++;
-    if ($('#dlgPrecos').open) renderPrecos();
     S.pend.listas = snap.metadata.hasPendingWrites;
     S.carregado.listas = true;
-    render();
+    seguro(render);
+    seguro(() => { if ($('#dlgPrecos') && $('#dlgPrecos').open) renderPrecos(); });
   }, erroLeitura));
   S.unsub.push(db.collection('itens').onSnapshot(opt, (snap) => {
     S.itens = new Map(snap.docs.map((d) => [d.id, { id: d.id, ...d.data() }]));
     S.ver++;
     S.pend.itens = snap.metadata.hasPendingWrites;
     S.carregado.itens = true;
-    render();
-    if (CAT.tipo && !$('#dlgCat').open && !document.querySelector('.linha-novo-cat, .chip.segurando')) renderCatalogo();
+    seguro(render);
+    seguro(() => { if (CAT.tipo && !$('#dlgCat').open && !document.querySelector('.linha-novo-cat, .chip.segurando')) renderCatalogo(); });
   }, erroLeitura));
 }
 
@@ -965,7 +992,20 @@ function ligarEventos() {
 /* ---------- Início ---------- */
 async function iniciar() {
   ligarEventos();
-  if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(() => {});
+  if ('serviceWorker' in navigator) {
+    // Quando sair versão nova, o app recarrega sozinho uma vez (todos os arquivos juntos)
+    const tinhaControle = !!navigator.serviceWorker.controller;
+    let recarregou = false;
+    navigator.serviceWorker.addEventListener('controllerchange', () => {
+      if (!tinhaControle || recarregou || $('dialog[open]')) return;
+      recarregou = true;
+      location.reload();
+    });
+    navigator.serviceWorker.register('sw.js').catch(() => {});
+  }
+  $('#btnRecarregarApp').onclick = recarregarApp;
+  // Se ficar "Carregando…" muito tempo, oferece recarregar
+  setTimeout(() => { if (!$('#telaCarregando').hidden) mostrarTravado(); }, 12000);
 
   if (!EMU && !CFG.firebase) { mostrarTela('telaConfig'); return; }
 
