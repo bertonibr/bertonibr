@@ -624,13 +624,12 @@ async function editarDetalhe(it) {
   $('#dlgObsTitulo').textContent = `Detalhe — ${it.texto}`;
   const inp = $('#dlgObsTexto');
   inp.value = it.obs || '';
-  $('#dlgObsRemover').hidden = !it.obs;
   d.returnValue = '';
   d.showModal();
   inp.focus();
   await new Promise((r) => d.addEventListener('close', r, { once: true }));
-  if (d.returnValue === 'ok' || d.returnValue === 'del') {
-    const obs = d.returnValue === 'del' ? '' : inp.value.trim().replace(/\s+/g, ' ').slice(0, 120);
+  if (d.returnValue === 'ok') {
+    const obs = inp.value.trim().replace(/\s+/g, ' ').slice(0, 120);
     if (obs !== (it.obs || '')) gravar(db.collection('itens').doc(it.id).update({ obs }));
   }
 }

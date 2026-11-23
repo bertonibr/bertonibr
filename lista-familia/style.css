@@ -219,3 +219,11 @@ dialog.grande .janela { max-height: calc(100dvh - 40px); }
 @media (min-width: 700px) {
   .listas { grid-template-columns: 1fr 1fr; }
 }
+
+/* Caixinha de detalhe: X para fechar, ✓ ao lado do campo */
+.obs-topo { display: flex; align-items: center; gap: 8px; margin: -6px -8px -4px 0; }
+.obs-topo h2 { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.obs-topo .fechar { font-size: 22px; color: var(--suave); }
+.obs-linha { display: flex; gap: 8px; }
+.obs-linha input { flex: 1; min-width: 0; }
+.obs-linha .ok { width: 52px; min-height: 48px; padding: 0; font-size: 24px; }

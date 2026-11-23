@@ -131,14 +131,15 @@
 
 <dialog id="dlgObs">
   <form method="dialog" class="janela">
-    <h2 id="dlgObsTitulo">Detalhe</h2>
-    <input id="dlgObsTexto" type="text" maxlength="120" placeholder="Ex.: marca, maduro, verde…" autocapitalize="sentences">
-    <div class="botoes">
-      <button id="dlgObsRemover" value="del" formnovalidate class="btn perigo">Remover</button>
-      <span class="espaco"></span>
-      <button value="cancel" formnovalidate class="btn">Cancelar</button>
-      <button value="ok" class="btn primario">Salvar</button>
+    <div class="obs-topo">
+      <h2 id="dlgObsTitulo">Detalhe</h2>
+      <button value="cancel" formnovalidate class="icone fechar" aria-label="Fechar">✕</button>
     </div>
+    <div class="obs-linha">
+      <input id="dlgObsTexto" type="text" maxlength="120" placeholder="Ex.: marca, maduro, verde…" autocapitalize="sentences">
+      <button value="ok" class="btn primario ok" aria-label="Salvar">✓</button>
+    </div>
+    <p class="nota">Para tirar o detalhe, apague o texto e toque em ✓.</p>
   </form>
 </dialog>
 
