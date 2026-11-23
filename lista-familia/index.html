@@ -66,10 +66,13 @@
            enterkeyhint="send" autocapitalize="sentences" maxlength="200" aria-label="Novo item">
     <button class="btn primario" aria-label="Adicionar">+</button>
   </form>
-  <div class="colar"><button id="btnColar" class="link" type="button">📋 Colar uma lista de itens</button></div>
+  <div class="colar">
+    <button id="btnPadrao" class="btn destaque" type="button" hidden>🛒 Escolher da lista padrão</button>
+    <button id="btnColar" class="link" type="button">📋 Colar uma lista</button>
+  </div>
   <datalist id="sugestoes"></datalist>
   <main class="conteudo">
-    <ul id="pendentes" class="itens"></ul>
+    <div id="pendentes"></div>
     <p id="listaVazia" class="vazio" hidden>Lista vazia. Digite acima e toque em <b>+</b> (ou Enter).</p>
     <section id="secFeitos" hidden>
       <h2 class="sub"><span id="tituloFeitos">Marcados</span>
@@ -110,6 +113,19 @@
   </form>
 </dialog>
 
+<dialog id="dlgPadrao" class="grande">
+  <form method="dialog" class="janela">
+    <h2>O que está faltando?</h2>
+    <p class="nota">Toque nos itens para marcar. Os que já estão na lista aparecem apagados.
+      <button id="dlgPadraoTodos" type="button" class="link">Marcar/desmarcar todos</button></p>
+    <div id="dlgPadraoItens" class="catalogo"></div>
+    <div class="botoes">
+      <button value="cancel" formnovalidate class="btn">Cancelar</button>
+      <button id="dlgPadraoOk" value="ok" class="btn primario">Adicionar</button>
+    </div>
+  </form>
+</dialog>
+
 <dialog id="dlgColar">
   <form method="dialog" class="janela">
     <h2>Adicionar vários itens</h2>
@@ -133,6 +149,7 @@
 <div id="toast" class="toast" hidden><span id="toastMsg"></span><button id="toastAcao" class="link" hidden></button></div>
 
 <script src="config.js"></script>
+<script src="padrao.js"></script>
 <script src="lib/firebase-app-compat.js"></script>
 <script src="lib/firebase-auth-compat.js"></script>
 <script src="lib/firebase-firestore-compat.js"></script>

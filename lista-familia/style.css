@@ -149,7 +149,25 @@ dialog::backdrop { background: rgba(20,30,25,.35); }
 .janela textarea { width: 100%; padding: 12px 14px; border: 1.5px solid var(--linha); border-radius: 12px; outline: none; resize: vertical; font: inherit; font-size: 17px; color: var(--texto); background: var(--cartao); }
 .janela textarea:focus { border-color: var(--cor); }
 .colar { max-width: 720px; width: 100%; margin: -6px auto 0; padding: 0 max(16px, env(safe-area-inset-right)) 0 max(16px, env(safe-area-inset-left)); }
+.colar { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
 .colar .link { font-size: 15px; padding: 4px 0; }
+.btn.destaque { min-height: 40px; background: var(--cor-clara); border-color: #bfe3cf; color: var(--cor-escura); font-size: 15px; padding: 0 14px; }
+
+.sec { font-size: 14px; font-weight: 700; color: var(--cor-escura); text-transform: uppercase; letter-spacing: .04em; margin: 18px 4px 8px; }
+#pendentes > .sec:first-child { margin-top: 4px; }
+#pendentes > .itens + .itens { margin-top: 10px; }
+
+dialog.grande { width: min(560px, calc(100vw - 20px)); max-height: calc(100dvh - 40px); }
+dialog.grande .janela { max-height: calc(100dvh - 40px); }
+.catalogo { overflow-y: auto; flex: 1; min-height: 120px; margin: 0 -4px; padding: 0 4px; }
+.catalogo .sec:first-child { margin-top: 0; }
+.chips { display: flex; flex-wrap: wrap; gap: 8px; }
+.chip { position: relative; }
+.chip input { position: absolute; opacity: 0; pointer-events: none; }
+.chip span { display: block; padding: 9px 13px; border: 1.5px solid var(--linha); border-radius: 20px; font-size: 16px; background: var(--cartao); cursor: pointer; user-select: none; -webkit-user-select: none; }
+.chip input:checked + span { background: var(--cor); border-color: var(--cor); color: #fff; font-weight: 600; }
+.chip.ja span { background: var(--fundo); color: #a3aca7; border-style: dashed; cursor: default; font-weight: 400; }
+.btn:disabled { opacity: .5; }
 
 .tipos { display: flex; gap: 8px; flex-wrap: wrap; }
 .tipos label { flex: 1; }

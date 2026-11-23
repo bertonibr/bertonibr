@@ -278,7 +278,7 @@ function separarItens(texto) {
 
 function adicionarVarios(texto) {
   if (!S.atual) return 0;
-  const linhas = separarItens(texto);
+  const linhas = Array.isArray(texto) ? texto : separarItens(texto);
   const existentes = new Map(itensDa(S.atual).map((i) => [norm(i.texto), i]));
   const ops = [];
   let novos = 0, ordem = Date.now();
@@ -299,6 +299,46 @@ function adicionarVarios(texto) {
   const rep = linhas.length - novos;
   toast(novos ? `${novos} ${novos === 1 ? 'item adicionado' : 'itens adicionados'}${rep ? ` (${rep} já estavam)` : ''}` : 'Todos esses itens já estão na lista');
   return novos;
+}
+
+/* ---------- Lista padrão (catálogo em padrao.js) ---------- */
+const PADRAO = window.LISTA_PADRAO || {};
+const SECOES = {};   // tipo → Map(norm(item) → seção)
+for (const [tipo, secs] of Object.entries(PADRAO)) {
+  SECOES[tipo] = new Map();
+  for (const s of secs) for (const i of s.itens) SECOES[tipo].set(norm(i), s.secao);
+}
+const secaoDe = (tipo, texto) => (SECOES[tipo] && SECOES[tipo].get(norm(texto))) || 'Outros';
+
+async function dialogoPadrao() {
+  const l = S.listas.get(S.atual);
+  if (!l || !PADRAO[l.tipo]) return;
+  const pend = new Set(itensDa(l.id).filter((i) => !i.feito).map((i) => norm(i.texto)));
+  const box = $('#dlgPadraoItens');
+  box.replaceChildren();
+  for (const s of PADRAO[l.tipo]) {
+    const chips = s.itens.map((nome) => {
+      const ja = pend.has(norm(nome));
+      const cb = el('input', { type: 'checkbox', value: nome, checked: ja, disabled: ja });
+      return el('label', { class: 'chip' + (ja ? ' ja' : '') }, cb, el('span', { text: nome }));
+    });
+    box.append(el('h3', { class: 'sec', text: s.secao }), el('div', { class: 'chips' }, ...chips));
+  }
+  const atualizar = () => {
+    const n = box.querySelectorAll('input:checked:not(:disabled)').length;
+    $('#dlgPadraoOk').textContent = n ? `Adicionar ${n}` : 'Adicionar';
+    $('#dlgPadraoOk').disabled = !n;
+  };
+  box.onchange = atualizar;
+  atualizar();
+  const d = $('#dlgPadrao');
+  d.returnValue = '';
+  d.showModal();
+  box.scrollTop = 0;
+  await new Promise((r) => d.addEventListener('close', r, { once: true }));
+  if (d.returnValue !== 'ok') return;
+  const escolhidos = [...box.querySelectorAll('input:checked:not(:disabled)')].map((c) => c.value);
+  if (escolhidos.length) adicionarVarios(escolhidos);
 }
 
 async function dialogoColar() {
@@ -378,6 +418,7 @@ function menuLista() {
   const l = S.listas.get(S.atual);
   if (!l) return;
   menu(l.nome, [
+    ...(PADRAO[l.tipo] ? [{ texto: '🛒  Escolher da lista padrão', fn: dialogoPadrao }] : []),
     { texto: '📋  Adicionar vários itens (colar lista)', fn: dialogoColar },
     { texto: '✏️  Renomear / mudar tipo', fn: () => dialogoLista(l) },
     { texto: '↗️  Compartilhar como texto', fn: () => compartilhar(l) },
@@ -470,7 +511,21 @@ function renderLista() {
   const its = ordenar(itensDa(l.id));
   const pend = its.filter((i) => !i.feito);
   const feitos = its.filter((i) => i.feito);
-  $('#pendentes').replaceChildren(...pend.map(linhaItem));
+  if (PADRAO[l.tipo] && pend.length) {
+    // Agrupa por seção, na ordem do catálogo (itens fora dele vão para "Outros")
+    const ordemSec = [...PADRAO[l.tipo].map((s) => s.secao), 'Outros'];
+    const grupos = new Map(ordemSec.map((s) => [s, []]));
+    for (const it of pend) grupos.get(secaoDe(l.tipo, it.texto)).push(it);
+    const partes = [];
+    for (const [sec, lista] of grupos) {
+      if (!lista.length) continue;
+      partes.push(el('h3', { class: 'sec', text: `${sec} (${lista.length})` }), el('ul', { class: 'itens' }, ...lista.map(linhaItem)));
+    }
+    $('#pendentes').replaceChildren(...partes);
+  } else {
+    $('#pendentes').replaceChildren(el('ul', { class: 'itens' }, ...pend.map(linhaItem)));
+  }
+  $('#btnPadrao').hidden = !PADRAO[l.tipo];
   $('#feitos').replaceChildren(...feitos.map(linhaItem));
   $('#listaVazia').hidden = its.length > 0;
   $('#secFeitos').hidden = feitos.length === 0;
@@ -511,6 +566,13 @@ function ligarEventos() {
     inp.focus();
   };
   $('#btnColar').onclick = dialogoColar;
+  $('#btnPadrao').onclick = dialogoPadrao;
+  $('#dlgPadraoTodos').onclick = () => {
+    const cbs = [...$('#dlgPadraoItens').querySelectorAll('input:not(:disabled)')];
+    const marcar = cbs.some((c) => !c.checked);
+    cbs.forEach((c) => { c.checked = marcar; });
+    $('#dlgPadraoItens').onchange();
+  };
   // Colar no campo um texto com várias linhas → adiciona tudo de uma vez
   $('#novoItem').addEventListener('paste', (e) => {
     const t = (e.clipboardData || window.clipboardData).getData('text');
