@@ -119,13 +119,14 @@ input { font: inherit; font-size: 17px; color: var(--texto); }
   border: 2px solid #b7c2bc; background: var(--cartao); position: relative; pointer-events: none;
 }
 .item .txt { flex: 1; padding: 12px 0; word-break: break-word; }
-.qtd { flex: none; display: flex; align-items: center; height: 36px; margin-left: 8px; border: 1.5px solid var(--linha); border-radius: 10px; background: var(--cartao); }
-.qtd button { width: 34px; height: 100%; border: 0; background: none; font-size: 20px; line-height: 1; color: var(--cor-escura); padding: 0; }
-.qtd button:active { background: var(--cor-clara); }
-.qtd button:disabled { color: #c9d3cf; }
-.qtd .n { min-width: 24px; text-align: center; font-weight: 600; font-variant-numeric: tabular-nums; }
-.qtd.mais1 { border-color: var(--cor); }
-.qtd.mais1 .n { color: var(--cor-escura); }
+select.qtd {
+  flex: none; width: 44px; height: 40px; margin-left: 8px; padding: 0;
+  border: 1.5px solid var(--linha); border-radius: 10px; background: var(--cartao);
+  font: inherit; font-size: 17px; font-weight: 600; color: var(--texto);
+  text-align: center; text-align-last: center; -webkit-appearance: none; appearance: none; cursor: pointer;
+}
+select.qtd:focus { outline: none; border-color: var(--cor); }
+select.qtd.mais1 { border-color: var(--cor); background: var(--cor-clara); color: var(--cor-escura); }
 .qtd-feito { flex: none; margin-left: 8px; color: var(--suave); font-size: 15px; }
 .linha-qtd { display: flex; align-items: center; gap: 12px; font-weight: 600; }
 .linha-qtd input { width: 90px; height: 44px; padding: 0 12px; border: 1.5px solid var(--linha); border-radius: 12px; font: inherit; font-size: 17px; }

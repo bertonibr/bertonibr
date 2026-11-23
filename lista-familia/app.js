@@ -544,10 +544,14 @@ function qtdEl(it) {
   const q = it.qtd || 1;
   const l = S.listas.get(it.listaId);
   if (!ativo(it, l)) return (q > 1 && !modoComprar(l)) ? el('span', { class: 'qtd-feito', text: `${q}x` }) : null;
-  return el('span', { class: 'qtd' + (q > 1 ? ' mais1' : '') },
-    el('button', { class: 'menos', type: 'button', text: '−', ariaLabel: 'Diminuir quantidade', disabled: q <= 1 }),
-    el('span', { class: 'n', text: String(q), ariaLabel: 'Quantidade' }),
-    el('button', { class: 'mais', type: 'button', text: '+', ariaLabel: 'Aumentar quantidade' }));
+  // Quadradinho com o número; ao tocar abre o seletor do celular (1 a 10)
+  const opcoes = [];
+  for (let i = 1; i <= 10; i++) opcoes.push(i);
+  if (q > 10) opcoes.push(q);                    // quantidade maior digitada no ✎ editar
+  const sel = el('select', { class: 'qtd' + (q > 1 ? ' mais1' : ''), ariaLabel: 'Quantidade de ' + it.texto, title: 'Quantidade' },
+    ...opcoes.map((n) => el('option', { value: String(n), text: String(n), selected: n === q })));
+  sel.onchange = () => mudarQtd(it, Number(sel.value) - (it.qtd || 1));
+  return sel;
 }
 
 function linhaItem(it) {
@@ -557,9 +561,7 @@ function linhaItem(it) {
     qtdEl(it),
     el('button', { class: 'edit', text: '✎', ariaLabel: 'Editar ' + it.texto }));
   li.onclick = (e) => {
-    if (e.target.closest('.qtd .mais')) mudarQtd(it, +1);
-    else if (e.target.closest('.qtd .menos')) mudarQtd(it, -1);
-    else if (e.target.closest('.qtd')) { /* toque no número não marca o item */ }
+    if (e.target.closest('.qtd')) { /* toque na quantidade não marca o item */ }
     else if (e.target.closest('.edit')) editarItem(it);
     else alternarItem(it);
   };
@@ -665,7 +667,7 @@ function ligarEventos() {
   });
   // Enter no diálogo de lista não deve fechar sem tipo
   document.addEventListener('keydown', (e) => {
-    if (e.key === 'Escape' && S.atual && !$('dialog[open]') && document.activeElement !== $('#novoItem')) voltar();
+    if (e.key === 'Escape' && S.atual && !$('dialog[open]') && !/^(INPUT|SELECT|TEXTAREA)$/.test((document.activeElement || {}).tagName)) voltar();
   });
 }
 
