@@ -270,12 +270,17 @@ function desmarcarTudo(lista) {
 
 function apagarMarcados(lista) {
   const feitos = itensDa(lista.id).filter((i) => i.feito);
-  if (!feitos.length) return;
+  if (!feitos.length) return toast('Nada marcado');
+  const n = feitos.length;
+  if (!confirm(`Limpar a lista "${lista.nome}"?\n\n${n === 1 ? 'O item marcado será apagado' : `Os ${n} itens marcados serão apagados`}. Você pode desfazer logo em seguida.`)) return;
   emLotes([...feitos.map((it) => (b) => b.delete(db.collection('itens').doc(it.id))), (b) => tocarLista(b, lista.id)]);
-  toast(`${feitos.length} ${feitos.length === 1 ? 'item apagado' : 'itens apagados'}`, {
+  toast(`Lista limpa (${n} ${n === 1 ? 'item apagado' : 'itens apagados'})`, {
     texto: 'Desfazer',
-    fn: () => emLotes(feitos.map((it) => (b) => { const { id, ...dados } = it; b.set(db.collection('itens').doc(id), dados); })),
-  });
+    fn: () => {
+      emLotes(feitos.map((it) => (b) => { const { id, ...dados } = it; b.set(db.collection('itens').doc(id), dados); }));
+      toast('Lista restaurada');
+    },
+  }, 10000);
 }
 
 function textoDaLista(lista) {
@@ -473,7 +478,7 @@ function menuLista() {
     { texto: '✏️  Renomear / mudar tipo', fn: () => dialogoLista(l) },
     { texto: '↗️  Compartilhar como texto', fn: () => compartilhar(l) },
     { texto: modoComprar(l) ? '↺  Desmarcar tudo (nada para comprar)' : '↺  Desmarcar tudo', fn: () => desmarcarTudo(l) },
-    ...(modoComprar(l) ? [] : [{ texto: '🧹  Apagar marcados', fn: () => apagarMarcados(l) }]),
+    ...(modoComprar(l) ? [] : [{ texto: '🧹  Limpar (apagar marcados)', fn: () => apagarMarcados(l) }]),
     { texto: '⧉  Duplicar lista', fn: () => duplicarLista(l) },
     { texto: '🗑  Excluir lista', fn: () => excluirLista(l), perigo: true },
   ]);
@@ -671,7 +676,7 @@ function renderLista() {
   $('#listaVazia').hidden = its.length > 0;
   $('#secFeitos').hidden = feitos.length === 0;
   $('#tituloFeitos').textContent = comprar ? `Não precisa comprar (${feitos.length})` : `Marcados (${feitos.length})`;
-  $('#btnLimparFeitos').textContent = comprar ? (esconder ? 'Mostrar' : 'Ocultar') : 'Apagar marcados';
+  $('#btnLimparFeitos').textContent = comprar ? (esconder ? 'Mostrar' : 'Ocultar') : 'Limpar';
   S.recemAdicionado = null;
 
   // Sugestões: itens já usados em listas do mesmo tipo e que não estão na lista aqui
