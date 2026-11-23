@@ -136,6 +136,13 @@ input { font: inherit; font-size: 17px; color: var(--texto); }
   border: solid #fff; border-width: 0 3px 3px 0; transform: rotate(45deg);
 }
 .item.feito .txt { color: var(--suave); text-decoration: line-through; }
+.titulo-bloco { font-size: 18px; margin: 4px 4px 4px; color: var(--texto); }
+.vazio.pouco { margin: 8px 0 4px; text-align: left; padding: 0 4px; }
+/* Mercado: marcado = comprar (destaque, sem riscar); desmarcado = não precisa (apagado) */
+.modo-comprar .item.feito .txt { color: var(--texto); text-decoration: none; font-weight: 600; }
+.modo-comprar #feitos .item .txt { color: var(--suave); }
+.modo-comprar #feitos .sec { color: var(--suave); }
+.modo-comprar #secFeitos .sub { font-size: 16px; }
 .item.novo { animation: brilho 1s ease-out; }
 @keyframes brilho { from { background: #fff4cc; } to { background: transparent; } }
 

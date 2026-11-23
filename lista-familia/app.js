@@ -181,6 +181,14 @@ function escutar() {
   }, erroLeitura));
 }
 
+/* Modo "comprar" (listas de Mercado): marcado = comprar, desmarcado = não precisa.
+   Nos outros tipos: marcado = feito. O campo no banco é o mesmo ("feito"). */
+const modoComprar = (l) => !!l && l.tipo === 'mercado';
+const ATIVO = (l) => modoComprar(l);                       // valor de "feito" que significa "na lista para fazer/comprar"
+const ativo = (it, l) => !!it.feito === ATIVO(l);
+let ocultarNaoPrecisa = false;
+try { ocultarNaoPrecisa = localStorage.getItem('listaFamilia.ocultar') === '1'; } catch (_) {}
+
 const itensDa = (listaId) => [...S.itens.values()].filter((i) => i.listaId === listaId);
 const tocarLista = (b, listaId) => b.update(db.collection('listas').doc(listaId), { mod: Date.now() });
 
@@ -253,8 +261,12 @@ function textoDaLista(lista) {
   const its = ordenar(itensDa(lista.id));
   const linhas = [`${TIPOS[lista.tipo].icone} ${lista.nome}`];
   const q = (i) => ((i.qtd || 1) > 1 ? `${i.qtd}x ` : '');
-  for (const i of its.filter((x) => !x.feito)) linhas.push('▢ ' + q(i) + i.texto);
-  for (const i of its.filter((x) => x.feito)) linhas.push('✔ ' + q(i) + i.texto);
+  if (modoComprar(lista)) {
+    for (const i of its.filter((x) => ativo(x, lista))) linhas.push('▢ ' + q(i) + i.texto);
+  } else {
+    for (const i of its.filter((x) => !x.feito)) linhas.push('▢ ' + q(i) + i.texto);
+    for (const i of its.filter((x) => x.feito)) linhas.push('✔ ' + q(i) + i.texto);
+  }
   return linhas.join('\n');
 }
 
@@ -280,20 +292,21 @@ function separarItens(texto) {
 function adicionarVarios(texto) {
   if (!S.atual) return 0;
   const linhas = Array.isArray(texto) ? texto : separarItens(texto);
+  const l = S.listas.get(S.atual), val = ATIVO(l);
   const existentes = new Map(itensDa(S.atual).map((i) => [norm(i.texto), i]));
   const ops = [];
   let novos = 0, ordem = Date.now();
   for (const t of linhas) {
     const k = norm(t);
     const ex = existentes.get(k);
-    if (ex && !ex.feito) continue;            // já está pendente
+    if (ex && ativo(ex, l)) continue;         // já está na lista
     const o = ordem++;
-    if (ex) ops.push((b) => b.update(db.collection('itens').doc(ex.id), { feito: false, ordem: o }));
+    if (ex) ops.push((b) => b.update(db.collection('itens').doc(ex.id), { feito: val, ordem: o }));
     else {
       const ref = db.collection('itens').doc();
-      ops.push((b) => b.set(ref, { listaId: S.atual, texto: t, feito: false, ordem: o, criadoPor: primeiroNome(), criadoEm: Date.now() }));
+      ops.push((b) => b.set(ref, { listaId: S.atual, texto: t, feito: val, ordem: o, criadoPor: primeiroNome(), criadoEm: Date.now() }));
     }
-    existentes.set(k, { feito: false });
+    existentes.set(k, { feito: val });
     novos++;
   }
   if (novos) { const id = S.atual; ops.push((b) => tocarLista(b, id)); emLotes(ops); }
@@ -314,7 +327,7 @@ const secaoDe = (tipo, texto) => (SECOES[tipo] && SECOES[tipo].get(norm(texto)))
 async function dialogoPadrao() {
   const l = S.listas.get(S.atual);
   if (!l || !PADRAO[l.tipo]) return;
-  const pend = new Set(itensDa(l.id).filter((i) => !i.feito).map((i) => norm(i.texto)));
+  const pend = new Set(itensDa(l.id).filter((i) => ativo(i, l)).map((i) => norm(i.texto)));
   const box = $('#dlgPadraoItens');
   box.replaceChildren();
   for (const s of PADRAO[l.tipo]) {
@@ -356,14 +369,15 @@ function adicionarItem(texto) {
   texto = texto.trim().replace(/\s+/g, ' ');
   if (!texto || !S.atual) return;
   const existente = itensDa(S.atual).find((i) => norm(i.texto) === norm(texto));
-  if (existente && !existente.feito) { toast(`"${existente.texto}" já está na lista`); S.recemAdicionado = existente.id; render(); return; }
+  const l = S.listas.get(S.atual), val = ATIVO(l);
+  if (existente && ativo(existente, l)) { toast(`"${existente.texto}" já está na lista`); S.recemAdicionado = existente.id; render(); return; }
   const b = db.batch();
   if (existente) {
-    b.update(db.collection('itens').doc(existente.id), { feito: false, ordem: Date.now() });
+    b.update(db.collection('itens').doc(existente.id), { feito: val, ordem: Date.now() });
     S.recemAdicionado = existente.id;
   } else {
     const ref = db.collection('itens').doc();
-    b.set(ref, { listaId: S.atual, texto, feito: false, ordem: Date.now(), criadoPor: primeiroNome(), criadoEm: Date.now() });
+    b.set(ref, { listaId: S.atual, texto, feito: val, ordem: Date.now(), criadoPor: primeiroNome(), criadoEm: Date.now() });
     S.recemAdicionado = ref.id;
   }
   tocarLista(b, S.atual);
@@ -433,8 +447,8 @@ function menuLista() {
     { texto: '📋  Adicionar vários itens (colar lista)', fn: dialogoColar },
     { texto: '✏️  Renomear / mudar tipo', fn: () => dialogoLista(l) },
     { texto: '↗️  Compartilhar como texto', fn: () => compartilhar(l) },
-    { texto: '↺  Desmarcar tudo', fn: () => desmarcarTudo(l) },
-    { texto: '🧹  Apagar marcados', fn: () => apagarMarcados(l) },
+    { texto: modoComprar(l) ? '↺  Desmarcar tudo (nada para comprar)' : '↺  Desmarcar tudo', fn: () => desmarcarTudo(l) },
+    ...(modoComprar(l) ? [] : [{ texto: '🧹  Apagar marcados', fn: () => apagarMarcados(l) }]),
     { texto: '⧉  Duplicar lista', fn: () => duplicarLista(l) },
     { texto: '🗑  Excluir lista', fn: () => excluirLista(l), perigo: true },
   ]);
@@ -492,11 +506,14 @@ function renderInicio() {
     const falta = c.tot - c.feitos;
     const barra = el('i');
     barra.style.width = c.tot ? (100 * c.feitos / c.tot) + '%' : '0';
+    const texto = modoComprar(l)
+      ? (c.feitos ? `${c.feitos} para comprar` : (c.tot ? 'nada para comprar' : 'vazia'))
+      : (c.tot ? (falta ? `faltam ${falta}` : 'tudo ok ✓') : 'vazia');
     const card = el('button', { class: 'card', 'data-id': l.id },
       el('span', { class: 'ico', text: (TIPOS[l.tipo] || TIPOS.geral).icone }),
       el('span', { class: 'nome', text: l.nome }),
-      el('span', { class: 'cont', text: c.tot ? (falta ? `faltam ${falta}` : 'tudo ok ✓') : 'vazia' }),
-      el('div', { class: 'barra' }, barra));
+      el('span', { class: 'cont', text: texto }),
+      modoComprar(l) ? null : el('div', { class: 'barra' }, barra));
     card.onclick = () => abrirLista(l.id);
     return card;
   }));
@@ -504,7 +521,8 @@ function renderInicio() {
 
 function qtdEl(it) {
   const q = it.qtd || 1;
-  if (it.feito) return q > 1 ? el('span', { class: 'qtd-feito', text: `${q}x` }) : null;
+  const l = S.listas.get(it.listaId);
+  if (!ativo(it, l)) return (q > 1 && !modoComprar(l)) ? el('span', { class: 'qtd-feito', text: `${q}x` }) : null;
   return el('span', { class: 'qtd' + (q > 1 ? ' mais1' : '') },
     el('button', { class: 'menos', type: 'button', text: '−', ariaLabel: 'Diminuir quantidade', disabled: q <= 1 }),
     el('span', { class: 'n', text: String(q), ariaLabel: 'Quantidade' }),
@@ -533,30 +551,37 @@ function renderLista() {
   $('#tituloLista').textContent = `${(TIPOS[l.tipo] || TIPOS.geral).icone} ${l.nome}`;
   document.title = l.nome + ' — Lista Família';
   const its = ordenar(itensDa(l.id));
-  const pend = its.filter((i) => !i.feito);
-  const feitos = its.filter((i) => i.feito);
-  if (PADRAO[l.tipo] && pend.length) {
-    // Agrupa por seção, na ordem do catálogo (itens fora dele vão para "Outros")
-    const ordemSec = [...PADRAO[l.tipo].map((s) => s.secao), 'Outros'];
-    const grupos = new Map(ordemSec.map((s) => [s, []]));
-    for (const it of pend) grupos.get(secaoDe(l.tipo, it.texto)).push(it);
+  const comprar = modoComprar(l);
+  const pend = its.filter((i) => ativo(i, l));
+  const feitos = its.filter((i) => !ativo(i, l));
+  $('#telaLista').classList.toggle('modo-comprar', comprar);
+  // Agrupa por seção, na ordem do catálogo (itens fora dele vão para "Outros")
+  const agrupar = (lista) => {
+    if (!PADRAO[l.tipo] || !lista.length) return lista.length ? [el('ul', { class: 'itens' }, ...lista.map(linhaItem))] : [];
+    const grupos = new Map([...PADRAO[l.tipo].map((s) => s.secao), 'Outros'].map((s) => [s, []]));
+    for (const it of lista) grupos.get(secaoDe(l.tipo, it.texto)).push(it);
     const partes = [];
-    for (const [sec, lista] of grupos) {
-      if (!lista.length) continue;
-      partes.push(el('h3', { class: 'sec', text: `${sec} (${lista.length})` }), el('ul', { class: 'itens' }, ...lista.map(linhaItem)));
+    for (const [sec, g] of grupos) {
+      if (g.length) partes.push(el('h3', { class: 'sec', text: `${sec} (${g.length})` }), el('ul', { class: 'itens' }, ...g.map(linhaItem)));
     }
-    $('#pendentes').replaceChildren(...partes);
-  } else {
-    $('#pendentes').replaceChildren(el('ul', { class: 'itens' }, ...pend.map(linhaItem)));
+    return partes;
+  };
+  const topo = [];
+  if (comprar) {
+    topo.push(el('h2', { class: 'titulo-bloco', text: `🛒 Para comprar (${pend.length})` }));
+    if (!pend.length && its.length) topo.push(el('p', { class: 'vazio pouco', text: 'Nada para comprar. Marque abaixo o que está faltando.' }));
   }
+  $('#pendentes').replaceChildren(...topo, ...agrupar(pend));
   $('#btnPadrao').hidden = !PADRAO[l.tipo];
-  $('#feitos').replaceChildren(...feitos.map(linhaItem));
+  const esconder = comprar && ocultarNaoPrecisa;
+  $('#feitos').replaceChildren(...(esconder ? [] : (comprar ? agrupar(feitos) : [el('ul', { class: 'itens' }, ...feitos.map(linhaItem))])));
   $('#listaVazia').hidden = its.length > 0;
   $('#secFeitos').hidden = feitos.length === 0;
-  $('#tituloFeitos').textContent = `${l.tipo === 'mercado' ? 'No carrinho' : 'Marcados'} (${feitos.length})`;
+  $('#tituloFeitos').textContent = comprar ? `Não precisa comprar (${feitos.length})` : `Marcados (${feitos.length})`;
+  $('#btnLimparFeitos').textContent = comprar ? (esconder ? 'Mostrar' : 'Ocultar') : 'Apagar marcados';
   S.recemAdicionado = null;
 
-  // Sugestões: itens já usados em listas do mesmo tipo e que não estão pendentes aqui
+  // Sugestões: itens já usados em listas do mesmo tipo e que não estão na lista aqui
   const pendentes = new Set(pend.map((i) => norm(i.texto)));
   const vistos = new Map();
   for (const it of S.itens.values()) {
@@ -581,7 +606,15 @@ function ligarEventos() {
   $('#btnMenuInicio').onclick = menuInicio;
   $('#btnMenuLista').onclick = menuLista;
   $('#tituloLista').onclick = () => { const l = S.listas.get(S.atual); if (l) dialogoLista(l); };
-  $('#btnLimparFeitos').onclick = () => { const l = S.listas.get(S.atual); if (l) apagarMarcados(l); };
+  $('#btnLimparFeitos').onclick = () => {
+    const l = S.listas.get(S.atual);
+    if (!l) return;
+    if (modoComprar(l)) {
+      ocultarNaoPrecisa = !ocultarNaoPrecisa;
+      try { localStorage.setItem('listaFamilia.ocultar', ocultarNaoPrecisa ? '1' : '0'); } catch (_) {}
+      render();
+    } else apagarMarcados(l);
+  };
   $('#formItem').onsubmit = (e) => {
     e.preventDefault();
     const inp = $('#novoItem');
