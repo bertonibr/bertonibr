@@ -227,3 +227,17 @@ dialog.grande .janela { max-height: calc(100dvh - 40px); }
 .obs-linha { display: flex; gap: 8px; }
 .obs-linha input { flex: 1; min-width: 0; }
 .obs-linha .ok { width: 52px; min-height: 48px; padding: 0; font-size: 24px; }
+
+/* Lista padrão editável */
+.chip span { position: relative; overflow: hidden; -webkit-touch-callout: none; }
+.chip.segurando span::after {
+  content: ""; position: absolute; inset: 0; background: rgba(47,158,110,.28);
+  transform-origin: left; animation: segurar 3s linear forwards; pointer-events: none;
+}
+@keyframes segurar { from { transform: scaleX(0); } to { transform: scaleX(1); } }
+.chip-add { padding: 9px 13px; border: 1.5px dashed var(--cor); border-radius: 20px; background: none; color: var(--cor-escura); font-size: 15px; font-weight: 600; }
+.linha-novo-cat { display: flex; gap: 6px; width: 100%; }
+.linha-novo-cat input { flex: 1; min-width: 0; height: 42px; padding: 0 12px; border: 1.5px solid var(--cor); border-radius: 12px; font: inherit; font-size: 16px; outline: none; }
+.linha-novo-cat .ok-cat { width: 46px; min-height: 42px; padding: 0; font-size: 20px; }
+.sel-secao { height: 44px; padding: 0 10px; border: 1.5px solid var(--linha); border-radius: 12px; font: inherit; font-size: 16px; background: var(--cartao); color: var(--texto); }
+.chip-add { min-width: 44px; font-size: 20px; line-height: 1; padding: 7px 14px; }

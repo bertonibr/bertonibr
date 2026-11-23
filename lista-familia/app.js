@@ -32,6 +32,7 @@ const S = {
   pend: { listas: false, itens: false },
   carregado: { listas: false, itens: false },
   unsub: [],
+  ver: 0,                 // muda a cada alteração em S.itens (cache do catálogo)
   recemAdicionado: null,
   criando: null,          // id de lista recém-criada (ainda sem retorno do banco)
 };
@@ -57,6 +58,10 @@ const primeiroNome = () => ((S.user && (S.user.displayName || S.user.email)) || 
 let toastTimer = 0;
 function toast(msg, acao, ms) {
   const t = $('#toast');
+  // Com uma janela aberta, o resto da tela fica "travado": põe o aviso dentro dela
+  const abertas = [...$$('dialog[open]')];
+  const dono = abertas.length ? abertas[abertas.length - 1] : document.body;
+  if (t.parentElement !== dono) dono.append(t);
   $('#toastMsg').textContent = msg;
   const b = $('#toastAcao');
   b.hidden = !acao;
@@ -175,9 +180,11 @@ function escutar() {
   }, erroLeitura));
   S.unsub.push(db.collection('itens').onSnapshot(opt, (snap) => {
     S.itens = new Map(snap.docs.map((d) => [d.id, { id: d.id, ...d.data() }]));
+    S.ver++;
     S.pend.itens = snap.metadata.hasPendingWrites;
     S.carregado.itens = true;
     render();
+    if (CAT.tipo && !$('#dlgCat').open && !document.querySelector('.linha-novo-cat, .chip.segurando')) renderCatalogo();
   }, erroLeitura));
 }
 
@@ -354,43 +361,207 @@ function adicionarVarios(texto) {
   return novos;
 }
 
-/* ---------- Lista padrão (catálogo em padrao.js) ---------- */
+/* ---------- Lista padrão (catálogo) ----------
+   Começa com os itens de padrao.js. Na primeira mudança (adicionar, editar ou
+   excluir), o catálogo é copiado para a nuvem e passa a ser compartilhado:
+   cada item vira um documento em "itens" com listaId "__padrao__<tipo>"
+   (assim não precisa mudar as regras do Firestore). */
 const PADRAO = window.LISTA_PADRAO || {};
-const SECOES = {};   // tipo → Map(norm(item) → seção)
-for (const [tipo, secs] of Object.entries(PADRAO)) {
-  SECOES[tipo] = new Map();
-  for (const s of secs) for (const i of s.itens) SECOES[tipo].set(norm(i), s.secao);
+const SEGURAR_MS = 3000;                       // segurar ~3 s abre editar/excluir
+const LISTA_CAT = (tipo) => `__padrao__${tipo}`;
+const META_CAT = (tipo) => `pad_meta_${tipo}`;
+const slug = (s) => norm(s).replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 60) || 'item';
+
+// Catálogo atual: [{ secao, itens: [{ id|null, texto }] }]
+const catCache = new Map();
+function catalogo(tipo) {
+  if (!PADRAO[tipo]) return [];
+  const c = catCache.get(tipo);
+  if (c && c.ver === S.ver) return c.v;
+  const v = catalogoCalc(tipo);
+  catCache.set(tipo, { ver: S.ver, v });
+  return v;
 }
-const secaoDe = (tipo, texto) => (SECOES[tipo] && SECOES[tipo].get(norm(texto))) || 'Outros';
+function catalogoCalc(tipo) {
+  const naNuvem = S.itens.has(META_CAT(tipo));
+  if (!naNuvem) return PADRAO[tipo].map((s) => ({ secao: s.secao, itens: s.itens.map((texto) => ({ id: null, texto })) }));
+  const ordemSec = PADRAO[tipo].map((s) => s.secao);
+  const grupos = new Map(ordemSec.map((s) => [s, []]));
+  const docs = [...S.itens.values()].filter((i) => i.listaId === LISTA_CAT(tipo))
+    .sort((a, b) => (a.ordem || 0) - (b.ordem || 0) || a.texto.localeCompare(b.texto, 'pt-BR'));
+  for (const d of docs) {
+    if (!grupos.has(d.secao)) grupos.set(d.secao, []);
+    grupos.get(d.secao).push({ id: d.id, texto: d.texto });
+  }
+  return [...grupos].map(([secao, itens]) => ({ secao, itens }));
+}
+
+function secaoDe(tipo, texto) {
+  const k = norm(texto);
+  for (const s of catalogo(tipo)) if (s.itens.some((i) => norm(i.texto) === k)) return s.secao;
+  return 'Outros';
+}
+
+// Copia o catálogo padrão para a nuvem (uma vez). IDs fixos: se os dois
+// aparelhos fizerem ao mesmo tempo, não duplica.
+function garantirCatalogo(tipo) {
+  if (S.itens.has(META_CAT(tipo))) return;
+  const ops = [(b) => b.set(db.collection('itens').doc(META_CAT(tipo)), { listaId: '__meta__', tipo, catalogo: true })];
+  let n = 0;
+  for (const s of PADRAO[tipo]) {
+    for (const texto of s.itens) {
+      const ordem = n++;
+      ops.push((b) => b.set(db.collection('itens').doc(`pad_${tipo}_${slug(texto)}`), { listaId: LISTA_CAT(tipo), texto, secao: s.secao, ordem }));
+    }
+  }
+  emLotes(ops);
+  // atualiza a memória já, para a tela refletir antes da resposta do banco
+  S.itens.set(META_CAT(tipo), { id: META_CAT(tipo), listaId: '__meta__', tipo }); S.ver++;
+  n = 0;
+  for (const s of PADRAO[tipo]) for (const texto of s.itens) {
+    const id = `pad_${tipo}_${slug(texto)}`;
+    if (!S.itens.has(id)) S.itens.set(id, { id, listaId: LISTA_CAT(tipo), texto, secao: s.secao, ordem: n }); S.ver++;
+    n++;
+  }
+}
+
+function idCatalogo(tipo, texto) {
+  const k = norm(texto);
+  for (const s of catalogo(tipo)) for (const i of s.itens) if (norm(i.texto) === k) return i.id;
+  return null;
+}
+
+function adicionarNoCatalogo(tipo, secao, texto) {
+  texto = texto.trim().replace(/\s+/g, ' ').slice(0, 200);
+  if (!texto) return false;
+  garantirCatalogo(tipo);
+  if (idCatalogo(tipo, texto)) { toast(`"${texto}" já está na lista padrão`); return false; }
+  const ref = db.collection('itens').doc();
+  const dados = { listaId: LISTA_CAT(tipo), texto, secao, ordem: Date.now() };
+  S.itens.set(ref.id, { id: ref.id, ...dados }); S.ver++;
+  gravar(ref.set(dados));
+  return true;
+}
+
+async function editarItemCatalogo(tipo, texto) {
+  garantirCatalogo(tipo);
+  const id = idCatalogo(tipo, texto);
+  const it = id && S.itens.get(id);
+  if (!it) return;
+  const d = $('#dlgCat');
+  $('#dlgCatTexto').value = it.texto;
+  const sel = $('#dlgCatSecao');
+  sel.replaceChildren(...catalogo(tipo).map((s) => el('option', { value: s.secao, text: s.secao, selected: s.secao === it.secao })));
+  d.returnValue = '';
+  d.showModal();
+  await new Promise((r) => d.addEventListener('close', r, { once: true }));
+  const ref = db.collection('itens').doc(id);
+  if (d.returnValue === 'del') {
+    if (!confirm(`Excluir "${it.texto}" da lista padrão?`)) return;
+    const { id: _, ...dados } = it;
+    S.itens.delete(id); S.ver++;
+    gravar(ref.delete());
+    toast(`"${it.texto}" excluído da lista padrão`, { texto: 'Desfazer', fn: () => { S.itens.set(id, it); S.ver++; gravar(ref.set(dados)); renderCatalogo(); } }, 10000);
+  } else if (d.returnValue === 'ok') {
+    const texto2 = $('#dlgCatTexto').value.trim().replace(/\s+/g, ' ').slice(0, 200);
+    const secao = sel.value;
+    if (!texto2) return;
+    if (norm(texto2) !== norm(it.texto) && idCatalogo(tipo, texto2)) { toast(`"${texto2}" já está na lista padrão`); return; }
+    const mud = {};
+    if (texto2 !== it.texto) mud.texto = texto2;
+    if (secao !== it.secao) { mud.secao = secao; mud.ordem = Date.now(); }
+    if (Object.keys(mud).length) { S.itens.set(id, { ...it, ...mud }); S.ver++; gravar(ref.update(mud)); }
+  }
+}
+
+// Diálogo "O que está faltando?"
+const CAT = { tipo: null, escolhidos: new Set(), ja: new Set() };
+
+function renderCatalogo() {
+  const box = $('#dlgPadraoItens');
+  if (!CAT.tipo || !$('#dlgPadrao').open) return;
+  const topo = box.scrollTop;
+  box.replaceChildren();
+  for (const s of catalogo(CAT.tipo)) {
+    const chips = s.itens.map((i) => chipCatalogo(i.texto));
+    const add = el('button', { type: 'button', class: 'chip-add', text: '+', ariaLabel: `Adicionar item em ${s.secao}` });
+    add.onclick = () => abrirCampoNovo(add, s.secao);
+    box.append(el('h3', { class: 'sec', text: s.secao }), el('div', { class: 'chips' }, ...chips, add));
+  }
+  box.scrollTop = topo;
+  atualizarBotaoCatalogo();
+}
+
+function chipCatalogo(nome) {
+  const k = norm(nome);
+  const ja = CAT.ja.has(k);
+  const cb = el('input', { type: 'checkbox', value: nome, checked: ja || CAT.escolhidos.has(k), disabled: ja });
+  cb.onchange = () => { if (cb.checked) CAT.escolhidos.add(k); else CAT.escolhidos.delete(k); atualizarBotaoCatalogo(); };
+  const chip = el('label', { class: 'chip' + (ja ? ' ja' : '') }, cb, el('span', { text: nome }));
+  // Segurar ~3 s: editar ou excluir
+  let timer = 0, x0 = 0, y0 = 0, disparou = false;
+  const parar = () => { clearTimeout(timer); chip.classList.remove('segurando'); };
+  chip.addEventListener('pointerdown', (e) => {
+    if (e.button) return;
+    disparou = false; x0 = e.clientX; y0 = e.clientY;
+    chip.classList.add('segurando');
+    timer = setTimeout(() => {
+      disparou = true; chip.classList.remove('segurando');
+      if (navigator.vibrate) navigator.vibrate(30);
+      editarItemCatalogo(CAT.tipo, nome).then(renderCatalogo);
+    }, SEGURAR_MS);
+  });
+  chip.addEventListener('pointermove', (e) => { if (Math.abs(e.clientX - x0) > 10 || Math.abs(e.clientY - y0) > 10) parar(); });
+  chip.addEventListener('pointerup', parar);
+  chip.addEventListener('pointercancel', parar);
+  chip.addEventListener('pointerleave', parar);
+  chip.addEventListener('contextmenu', (e) => e.preventDefault());
+  chip.addEventListener('click', (e) => { if (disparou) { e.preventDefault(); disparou = false; } });
+  return chip;
+}
+
+function abrirCampoNovo(botao, secao) {
+  const inp = el('input', { type: 'text', class: 'novo-cat', maxLength: 200, placeholder: `Novo item em ${secao}`, enterKeyHint: 'done' });
+  const ok = el('button', { type: 'button', class: 'btn primario ok-cat', text: '✓', ariaLabel: 'Adicionar à lista padrão' });
+  const linha = el('div', { class: 'linha-novo-cat' }, inp, ok);
+  botao.replaceWith(linha);
+  const salvar = () => {
+    if (inp.value.trim() && adicionarNoCatalogo(CAT.tipo, secao, inp.value)) {
+      CAT.escolhidos.add(norm(inp.value.trim().replace(/\s+/g, ' ')));   // já vem marcado para adicionar
+      toast(`"${inp.value.trim()}" adicionado à lista padrão`);
+    }
+    renderCatalogo();
+  };
+  ok.onclick = salvar;
+  inp.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); e.stopPropagation(); salvar(); } });
+  inp.focus();
+  linha.scrollIntoView({ block: 'nearest' });
+}
+
+function atualizarBotaoCatalogo() {
+  const n = CAT.escolhidos.size;
+  $('#dlgPadraoOk').textContent = n ? `Adicionar ${n}` : 'Adicionar';
+  $('#dlgPadraoOk').disabled = !n;
+}
 
 async function dialogoPadrao() {
   const l = S.listas.get(S.atual);
   if (!l || !PADRAO[l.tipo]) return;
-  const pend = new Set(itensDa(l.id).filter((i) => ativo(i, l)).map((i) => norm(i.texto)));
-  const box = $('#dlgPadraoItens');
-  box.replaceChildren();
-  for (const s of PADRAO[l.tipo]) {
-    const chips = s.itens.map((nome) => {
-      const ja = pend.has(norm(nome));
-      const cb = el('input', { type: 'checkbox', value: nome, checked: ja, disabled: ja });
-      return el('label', { class: 'chip' + (ja ? ' ja' : '') }, cb, el('span', { text: nome }));
-    });
-    box.append(el('h3', { class: 'sec', text: s.secao }), el('div', { class: 'chips' }, ...chips));
-  }
-  const atualizar = () => {
-    const n = box.querySelectorAll('input:checked:not(:disabled)').length;
-    $('#dlgPadraoOk').textContent = n ? `Adicionar ${n}` : 'Adicionar';
-    $('#dlgPadraoOk').disabled = !n;
-  };
-  box.onchange = atualizar;
-  atualizar();
+  CAT.tipo = l.tipo;
+  CAT.ja = new Set(itensDa(l.id).filter((i) => ativo(i, l)).map((i) => norm(i.texto)));
+  CAT.escolhidos = new Set();
   const d = $('#dlgPadrao');
   d.returnValue = '';
   d.showModal();
-  box.scrollTop = 0;
+  $('#dlgPadraoItens').scrollTop = 0;
+  renderCatalogo();
   await new Promise((r) => d.addEventListener('close', r, { once: true }));
+  const tipo = CAT.tipo;
+  CAT.tipo = null;
   if (d.returnValue !== 'ok') return;
-  const escolhidos = [...box.querySelectorAll('input:checked:not(:disabled)')].map((c) => c.value);
+  // na ordem do catálogo
+  const escolhidos = [];
+  for (const s of catalogo(tipo)) for (const i of s.itens) if (CAT.escolhidos.has(norm(i.texto))) escolhidos.push(i.texto);
   if (escolhidos.length) adicionarVarios(escolhidos);
 }
 
@@ -749,10 +920,11 @@ function ligarEventos() {
   }
   $('#btnPadrao').onclick = dialogoPadrao;
   $('#dlgPadraoTodos').onclick = () => {
-    const cbs = [...$('#dlgPadraoItens').querySelectorAll('input:not(:disabled)')];
-    const marcar = cbs.some((c) => !c.checked);
-    cbs.forEach((c) => { c.checked = marcar; });
-    $('#dlgPadraoItens').onchange();
+    const todos = [];
+    for (const s of catalogo(CAT.tipo)) for (const i of s.itens) if (!CAT.ja.has(norm(i.texto))) todos.push(norm(i.texto));
+    const marcar = todos.some((k) => !CAT.escolhidos.has(k));
+    CAT.escolhidos = new Set(marcar ? todos : []);
+    renderCatalogo();
   };
   // Colar no campo um texto com várias linhas → adiciona tudo de uma vez
   $('#novoItem').addEventListener('paste', (e) => {

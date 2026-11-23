@@ -119,7 +119,7 @@
 <dialog id="dlgPadrao" class="grande">
   <form method="dialog" class="janela">
     <h2>O que está faltando?</h2>
-    <p class="nota">Toque nos itens para marcar. Os que já estão na lista aparecem apagados.
+    <p class="nota">Toque nos itens para marcar. Segure um item por 3 segundos para editar ou excluir.
       <button id="dlgPadraoTodos" type="button" class="link">Marcar/desmarcar todos</button></p>
     <div id="dlgPadraoItens" class="catalogo"></div>
     <div class="botoes">
@@ -140,6 +140,23 @@
       <button value="ok" class="btn primario ok" aria-label="Salvar">✓</button>
     </div>
     <p class="nota">Para tirar o detalhe, apague o texto e toque em ✓.</p>
+  </form>
+</dialog>
+
+<dialog id="dlgCat">
+  <form method="dialog" class="janela">
+    <div class="obs-topo">
+      <h2>Item da lista padrão</h2>
+      <button value="cancel" formnovalidate class="icone fechar" aria-label="Fechar">✕</button>
+    </div>
+    <div class="obs-linha">
+      <input id="dlgCatTexto" type="text" maxlength="200" required>
+      <button value="ok" class="btn primario ok" aria-label="Salvar">✓</button>
+    </div>
+    <label class="linha-qtd">Seção <select id="dlgCatSecao" class="sel-secao"></select></label>
+    <div class="botoes">
+      <button value="del" formnovalidate class="btn perigo">Excluir da lista padrão</button>
+    </div>
   </form>
 </dialog>
 
