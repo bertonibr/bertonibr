@@ -5,5 +5,12 @@
    projectId, appId…). */
 window.LISTA_CONFIG = {
   googleClientId: '530547436652-2he3q0cjco89skdsivnpcd6gr9vm4dv9.apps.googleusercontent.com',
-  firebase: null,
+  firebase: {
+    apiKey: 'AIzaSyDHv3nG2l8VqTkqBZ7Lybyi2VLrF0c-4Jk',
+    authDomain: 'tranquil-bison-333001.firebaseapp.com',
+    projectId: 'tranquil-bison-333001',
+    storageBucket: 'tranquil-bison-333001.firebasestorage.app',
+    messagingSenderId: '530547436652',
+    appId: '1:530547436652:web:f79b4251a8ec911da63c49',
+  },
 };
