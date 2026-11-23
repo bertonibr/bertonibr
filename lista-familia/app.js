@@ -55,7 +55,7 @@ const norm = (s) => s.trim().toLocaleLowerCase('pt-BR').normalize('NFD').replace
 const primeiroNome = () => ((S.user && (S.user.displayName || S.user.email)) || '').split(/[\s@]/)[0];
 
 let toastTimer = 0;
-function toast(msg, acao) {
+function toast(msg, acao, ms) {
   const t = $('#toast');
   $('#toastMsg').textContent = msg;
   const b = $('#toastAcao');
@@ -63,7 +63,7 @@ function toast(msg, acao) {
   if (acao) { b.textContent = acao.texto; b.onclick = () => { t.hidden = true; acao.fn(); }; }
   t.hidden = false;
   clearTimeout(toastTimer);
-  toastTimer = setTimeout(() => { t.hidden = true; }, acao ? 6000 : 3000);
+  toastTimer = setTimeout(() => { t.hidden = true; }, ms || (acao ? 6000 : 3000));
 }
 
 function mostrarTela(id) {
@@ -241,10 +241,31 @@ function excluirLista(lista) {
   voltar();
 }
 
+// Limpa a lista (desmarca tudo; no Mercado também volta as quantidades para 1),
+// pedindo confirmação e oferecendo "Desfazer" que restaura exatamente o estado anterior.
 function desmarcarTudo(lista) {
-  const feitos = itensDa(lista.id).filter((i) => i.feito);
-  if (!feitos.length) return toast('Nada marcado');
-  emLotes([...feitos.map((it) => (b) => b.update(db.collection('itens').doc(it.id), { feito: false })), (b) => tocarLista(b, lista.id)]);
+  const comprar = modoComprar(lista);
+  const marcados = itensDa(lista.id).filter((i) => i.feito);
+  if (!marcados.length) return toast(comprar ? 'A lista já está limpa' : 'Nada marcado');
+  const mexer = itensDa(lista.id).filter((i) => i.feito || (comprar && (i.qtd || 1) > 1));
+  const n = marcados.length;
+  const pergunta = comprar
+    ? `Limpar a lista "${lista.nome}"?\n\n${n} ${n === 1 ? 'item marcado para comprar será desmarcado' : 'itens marcados para comprar serão desmarcados'}. Você pode desfazer logo em seguida.`
+    : `Desmarcar ${n} ${n === 1 ? 'item' : 'itens'} da lista "${lista.nome}"?`;
+  if (!confirm(pergunta)) return;
+  const antes = mexer.map((i) => ({ id: i.id, feito: !!i.feito, qtd: i.qtd || 1, feitoPor: i.feitoPor || null }));
+  const ref = (id) => db.collection('itens').doc(id);
+  emLotes([...mexer.map((it) => (b) => b.update(ref(it.id), comprar ? { feito: false, qtd: 1 } : { feito: false })),
+    (b) => tocarLista(b, lista.id)]);
+  toast(comprar ? `Lista limpa (${n} ${n === 1 ? 'item' : 'itens'})` : `${n} desmarcados`, {
+    texto: 'Desfazer',
+    fn: () => {
+      const existem = antes.filter((a) => S.itens.has(a.id));   // ignora itens apagados nesse meio-tempo
+      emLotes([...existem.map((a) => (b) => b.update(ref(a.id), { feito: a.feito, qtd: a.qtd, feitoPor: a.feitoPor })),
+        (b) => tocarLista(b, lista.id)]);
+      toast('Lista restaurada');
+    },
+  }, 10000);
 }
 
 function apagarMarcados(lista) {
@@ -568,7 +589,10 @@ function renderLista() {
   };
   const topo = [];
   if (comprar) {
-    topo.push(el('h2', { class: 'titulo-bloco', text: `🛒 Para comprar (${pend.length})` }));
+    const limpar = el('button', { class: 'link', type: 'button', text: 'Limpar', title: 'Desmarcar tudo (nada para comprar)' });
+    limpar.onclick = () => desmarcarTudo(l);
+    limpar.hidden = !pend.length;
+    topo.push(el('h2', { class: 'titulo-bloco' }, el('span', { text: `🛒 Para comprar (${pend.length})` }), limpar));
     if (!pend.length && its.length) topo.push(el('p', { class: 'vazio pouco', text: 'Nada para comprar. Marque abaixo o que está faltando.' }));
   }
   $('#pendentes').replaceChildren(...topo, ...agrupar(pend));
