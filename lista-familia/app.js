@@ -252,8 +252,9 @@ function apagarMarcados(lista) {
 function textoDaLista(lista) {
   const its = ordenar(itensDa(lista.id));
   const linhas = [`${TIPOS[lista.tipo].icone} ${lista.nome}`];
-  for (const i of its.filter((x) => !x.feito)) linhas.push('▢ ' + i.texto);
-  for (const i of its.filter((x) => x.feito)) linhas.push('✔ ' + i.texto);
+  const q = (i) => ((i.qtd || 1) > 1 ? `${i.qtd}x ` : '');
+  for (const i of its.filter((x) => !x.feito)) linhas.push('▢ ' + q(i) + i.texto);
+  for (const i of its.filter((x) => x.feito)) linhas.push('✔ ' + q(i) + i.texto);
   return linhas.join('\n');
 }
 
@@ -376,9 +377,15 @@ function alternarItem(it) {
   gravar(b.commit());
 }
 
+function mudarQtd(it, delta) {
+  const q = Math.min(999, Math.max(1, (it.qtd || 1) + delta));
+  if (q !== (it.qtd || 1)) gravar(db.collection('itens').doc(it.id).update({ qtd: q }));
+}
+
 async function editarItem(it) {
   const d = $('#dlgItem');
   $('#dlgItemTexto').value = it.texto;
+  $('#dlgItemQtd').value = it.qtd || 1;
   $('#dlgItemQuem').textContent = it.criadoPor ? `Adicionado por ${it.criadoPor}` : '';
   d.returnValue = '';
   d.showModal();
@@ -389,7 +396,11 @@ async function editarItem(it) {
     toast(`"${it.texto}" excluído`, { texto: 'Desfazer', fn: () => gravar(db.collection('itens').doc(id).set(dados)) });
   } else if (d.returnValue === 'ok') {
     const texto = $('#dlgItemTexto').value.trim().replace(/\s+/g, ' ');
-    if (texto && texto !== it.texto) gravar(db.collection('itens').doc(it.id).update({ texto }));
+    const qtd = Math.min(999, Math.max(1, parseInt($('#dlgItemQtd').value, 10) || 1));
+    const mud = {};
+    if (texto && texto !== it.texto) mud.texto = texto;
+    if (qtd !== (it.qtd || 1)) mud.qtd = qtd;
+    if (Object.keys(mud).length) gravar(db.collection('itens').doc(it.id).update(mud));
   }
 }
 
@@ -491,13 +502,26 @@ function renderInicio() {
   }));
 }
 
+function qtdEl(it) {
+  const q = it.qtd || 1;
+  if (it.feito) return q > 1 ? el('span', { class: 'qtd-feito', text: `${q}x` }) : null;
+  return el('span', { class: 'qtd' + (q > 1 ? ' mais1' : '') },
+    el('button', { class: 'menos', type: 'button', text: '−', ariaLabel: 'Diminuir quantidade', disabled: q <= 1 }),
+    el('span', { class: 'n', text: String(q), ariaLabel: 'Quantidade' }),
+    el('button', { class: 'mais', type: 'button', text: '+', ariaLabel: 'Aumentar quantidade' }));
+}
+
 function linhaItem(it) {
   const li = el('li', { class: 'item' + (it.feito ? ' feito' : '') + (S.recemAdicionado === it.id ? ' novo' : ''), 'data-id': it.id },
     el('span', { class: 'chk', role: 'checkbox', ariaChecked: String(!!it.feito) }),
     el('span', { class: 'txt', text: it.texto }),
+    qtdEl(it),
     el('button', { class: 'edit', text: '✎', ariaLabel: 'Editar ' + it.texto }));
   li.onclick = (e) => {
-    if (e.target.closest('.edit')) editarItem(it);
+    if (e.target.closest('.qtd .mais')) mudarQtd(it, +1);
+    else if (e.target.closest('.qtd .menos')) mudarQtd(it, -1);
+    else if (e.target.closest('.qtd')) { /* toque no número não marca o item */ }
+    else if (e.target.closest('.edit')) editarItem(it);
     else alternarItem(it);
   };
   return li;
