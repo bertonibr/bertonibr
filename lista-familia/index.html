@@ -69,6 +69,7 @@
   <div class="colar">
     <button id="btnPadrao" class="btn destaque" type="button" hidden>🛒 Escolher da lista padrão</button>
     <button id="btnColar" class="link" type="button">📋 Colar uma lista</button>
+    <button id="btnNota" class="link" type="button" hidden>🧾 Nota fiscal</button>
   </div>
   <datalist id="sugestoes"></datalist>
   <main class="conteudo">
@@ -160,6 +161,44 @@
   </form>
 </dialog>
 
+<dialog id="dlgNota" class="grande">
+  <form method="dialog" class="janela">
+    <div class="obs-topo">
+      <h2>Lançar nota fiscal</h2>
+      <button value="cancel" formnovalidate class="icone fechar" aria-label="Fechar">✕</button>
+    </div>
+    <p class="nota">1. Tire foto da nota e mande para o Claude com o pedido abaixo.<br>2. Copie a resposta e cole aqui.
+      <button id="btnCopiarPedido" type="button" class="link">Copiar pedido para o Claude</button></p>
+    <div class="nota-campos">
+      <label>Data <input id="notaData" type="date"></label>
+      <label>Mercado <input id="notaMercado" type="text" list="mercadosSug" maxlength="60" placeholder="Ex.: Pão de Açúcar" autocapitalize="words"></label>
+    </div>
+    <datalist id="mercadosSug"></datalist>
+    <textarea id="notaTexto" rows="8" placeholder="Leite UHT 1L; 2; 5,49; 10,98&#10;Banana prata kg; 1,2; 7,99; 9,59"></textarea>
+    <p id="notaPrevia" class="nota"></p>
+    <div class="botoes">
+      <button id="btnAbrirPrecos" type="button" class="link">📈 Ver preços</button>
+      <span class="espaco"></span>
+      <button id="notaSalvar" value="ok" class="btn primario">Salvar nota</button>
+    </div>
+  </form>
+</dialog>
+
+<dialog id="dlgPrecos" class="grande">
+  <form method="dialog" class="janela">
+    <div class="obs-topo">
+      <h2>Histórico de preços</h2>
+      <button value="cancel" formnovalidate class="icone fechar" aria-label="Fechar">✕</button>
+    </div>
+    <input id="precoBusca" type="search" placeholder="Buscar produto (ex.: leite)" autocomplete="off">
+    <div class="catalogo">
+      <div id="precoResultado"></div>
+      <h3 class="sec" id="tituloNotas">Notas lançadas</h3>
+      <ul id="precoNotas" class="lista-notas"></ul>
+    </div>
+  </form>
+</dialog>
+
 <dialog id="dlgColar">
   <form method="dialog" class="janela">
     <h2>Adicionar vários itens</h2>
@@ -187,6 +226,7 @@
 <script src="lib/firebase-app-compat.js"></script>
 <script src="lib/firebase-auth-compat.js"></script>
 <script src="lib/firebase-firestore-compat.js"></script>
+<script src="compras.js"></script>
 <script src="app.js"></script>
 </body>
 </html>

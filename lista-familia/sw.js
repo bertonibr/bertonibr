@@ -1,7 +1,7 @@
 /* Service worker: o app abre mesmo sem internet. */
-const CACHE = 'lista-familia-v16';
+const CACHE = 'lista-familia-v18';
 const SHELL = [
-  './', './index.html', './app.js', './config.js', './padrao.js', './style.css', './manifest.webmanifest',
+  './', './index.html', './app.js', './compras.js', './config.js', './padrao.js', './style.css', './manifest.webmanifest',
   './icon-192.png', './icon-512.png', './apple-touch-icon.png',
   './lib/firebase-app-compat.js', './lib/firebase-auth-compat.js', './lib/firebase-firestore-compat.js',
 ];

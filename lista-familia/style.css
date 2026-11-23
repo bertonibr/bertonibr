@@ -241,3 +241,24 @@ dialog.grande .janela { max-height: calc(100dvh - 40px); }
 .linha-novo-cat .ok-cat { width: 46px; min-height: 42px; padding: 0; font-size: 20px; }
 .sel-secao { height: 44px; padding: 0 10px; border: 1.5px solid var(--linha); border-radius: 12px; font: inherit; font-size: 16px; background: var(--cartao); color: var(--texto); }
 .chip-add { min-width: 44px; font-size: 20px; line-height: 1; padding: 7px 14px; }
+
+/* Notas fiscais e preços */
+.item .ult-preco { font-size: 11.5px; color: #8a978f; font-weight: 400; margin-top: 1px; letter-spacing: .01em; }
+.nota-campos { display: flex; gap: 10px; flex-wrap: wrap; }
+.nota-campos label { display: flex; flex-direction: column; gap: 4px; font-size: 14px; font-weight: 600; color: var(--suave); flex: 1; min-width: 130px; }
+.nota-campos input { height: 44px; padding: 0 12px; border: 1.5px solid var(--linha); border-radius: 12px; font: inherit; font-size: 16px; color: var(--texto); background: var(--cartao); }
+#precoBusca { height: 46px; padding: 0 14px; border: 1.5px solid var(--linha); border-radius: 12px; font: inherit; font-size: 17px; }
+.preco-prod { border: 1px solid var(--linha); border-radius: 12px; padding: 10px 12px; margin-bottom: 10px; }
+.preco-nome { font-weight: 700; font-size: 15px; margin-bottom: 4px; }
+.preco-linhas { list-style: none; margin: 0; padding: 0; }
+.preco-linhas li { display: flex; gap: 8px; font-size: 14px; padding: 3px 0; border-top: 1px solid var(--fundo); }
+.preco-linhas li:first-child { border-top: 0; }
+.p-data { color: var(--suave); width: 78px; flex: none; font-variant-numeric: tabular-nums; }
+.p-merc { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.p-val { font-weight: 600; font-variant-numeric: tabular-nums; }
+.preco-linhas li.barato .p-val { color: var(--cor-escura); }
+.preco-linhas li.barato .p-val::after { content: " ✓ menor"; font-size: 11px; font-weight: 600; }
+.lista-notas { list-style: none; margin: 0; padding: 0; }
+.lista-notas li { display: flex; align-items: center; gap: 8px; padding: 8px 2px; border-top: 1px solid var(--linha); font-size: 14px; flex-wrap: wrap; }
+.lista-notas .n-tot { color: var(--suave); flex: 1; text-align: right; white-space: nowrap; }
+.perigo-link { color: var(--perigo); font-size: 14px; }

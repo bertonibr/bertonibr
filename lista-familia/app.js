@@ -32,7 +32,8 @@ const S = {
   pend: { listas: false, itens: false },
   carregado: { listas: false, itens: false },
   unsub: [],
-  ver: 0,                 // muda a cada alteração em S.itens (cache do catálogo)
+  ver: 0,
+  verListas: 0,           // muda a cada atualização das listas/notas (cache de preços)                 // muda a cada alteração em S.itens (cache do catálogo)
   recemAdicionado: null,
   criando: null,          // id de lista recém-criada (ainda sem retorno do banco)
 };
@@ -174,6 +175,8 @@ function escutar() {
   const opt = { includeMetadataChanges: true };
   S.unsub.push(db.collection('listas').onSnapshot(opt, (snap) => {
     S.listas = new Map(snap.docs.map((d) => [d.id, { id: d.id, ...d.data() }]));
+    S.verListas++;
+    if ($('#dlgPrecos').open) renderPrecos();
     S.pend.listas = snap.metadata.hasPendingWrites;
     S.carregado.listas = true;
     render();
@@ -287,13 +290,14 @@ function desmarcarTudo(lista) {
   }, 10000);
 }
 
+// Limpar: apaga os itens de baixo (desmarcados / "não precisa"). Os de cima não mudam.
 function apagarMarcados(lista) {
-  const feitos = itensDa(lista.id).filter((i) => i.feito);
-  if (!feitos.length) return toast('Nada marcado');
+  const feitos = itensDa(lista.id).filter((i) => !ativo(i, lista));
+  if (!feitos.length) return toast('Nada para limpar');
   const n = feitos.length;
-  if (!confirm(`Limpar a lista "${lista.nome}"?\n\n${n === 1 ? 'O item marcado será apagado' : `Os ${n} itens marcados serão apagados`}. Você pode desfazer logo em seguida.`)) return;
+  if (!confirm(`Limpar a lista "${lista.nome}"?\n\n${n === 1 ? `O item de "${rot(lista).baixo}" será tirado da lista` : `Os ${n} itens de "${rot(lista).baixo}" serão tirados da lista`}. Os de cima não mudam. Você pode desfazer logo em seguida.`)) return;
   emLotes([...feitos.map((it) => (b) => b.delete(db.collection('itens').doc(it.id))), (b) => tocarLista(b, lista.id)]);
-  toast(`Lista limpa (${n} ${n === 1 ? 'item apagado' : 'itens apagados'})`, {
+  toast(`Lista limpa (${n} ${n === 1 ? 'item tirado' : 'itens tirados'})`, {
     texto: 'Desfazer',
     fn: () => {
       emLotes(feitos.map((it) => (b) => { const { id, ...dados } = it; b.set(db.collection('itens').doc(id), dados); }));
@@ -648,6 +652,8 @@ async function menu(titulo, opcoes, info) {
 
 function menuInicio() {
   menu('Lista Família', [
+    { texto: '🧾  Lançar nota fiscal', fn: dialogoNota },
+    { texto: '📈  Histórico de preços', fn: () => dialogoPrecos() },
     { texto: 'Sair da conta', fn: sair },
   ], S.user ? `Conectado como ${S.user.email}` : '');
 }
@@ -658,10 +664,11 @@ function menuLista() {
   menu(l.nome, [
     ...(PADRAO[l.tipo] ? [{ texto: '🛒  Escolher da lista padrão', fn: dialogoPadrao }] : []),
     { texto: '📋  Adicionar vários itens (colar lista)', fn: dialogoColar },
+    ...(l.tipo === 'mercado' ? [{ texto: '🧾  Lançar nota fiscal', fn: dialogoNota }, { texto: '📈  Histórico de preços', fn: () => dialogoPrecos() }] : []),
     { texto: '✏️  Renomear / mudar tipo', fn: () => dialogoLista(l) },
     { texto: '↗️  Compartilhar como texto', fn: () => compartilhar(l) },
     { texto: '↺  ' + rot(l).desmarcar, fn: () => desmarcarTudo(l) },
-    ...(modoComprar(l) ? [] : [{ texto: '🧹  Limpar (apagar marcados)', fn: () => apagarMarcados(l) }]),
+    { texto: `🧹  Limpar (tirar os de "${rot(l).baixo}")`, fn: () => apagarMarcados(l) },
     { texto: '⧉  Duplicar lista', fn: () => duplicarLista(l) },
     { texto: '🗑  Excluir lista', fn: () => excluirLista(l), perigo: true },
   ]);
@@ -698,6 +705,7 @@ function render() {
   atualizarStatus();
   if (!S.user) return;
   if (!S.carregado.listas || !S.carregado.itens) return mostrarTela('telaCarregando');
+  if (S.atual && ehCompra(S.listas.get(S.atual))) S.atual = null;
   if (S.atual && !S.listas.has(S.atual)) {
     if (S.atual === S.criando) return; // lista recém-criada: aparece no próximo instante
     S.atual = null;
@@ -714,7 +722,7 @@ function renderInicio() {
     const c = cont[it.listaId] || (cont[it.listaId] = { tot: 0, feitos: 0 });
     c.tot++; if (it.feito) c.feitos++;
   }
-  const listas = [...S.listas.values()].sort((a, b) => (b.mod || 0) - (a.mod || 0));
+  const listas = [...S.listas.values()].filter((l) => !ehCompra(l)).sort((a, b) => (b.mod || 0) - (a.mod || 0));
   $('#semListas').hidden = listas.length > 0;
   $('#listas').replaceChildren(...listas.map((l) => {
     const c = cont[l.id] || { tot: 0, feitos: 0 };
@@ -805,11 +813,21 @@ async function editarDetalhe(it) {
   }
 }
 
+// Último preço pago (bem pequenininho), só nas listas de Mercado
+function precoEl(it) {
+  const l = S.listas.get(it.listaId);
+  if (!l || l.tipo !== 'mercado') return null;
+  const p = ultimoPreco(it.texto);
+  if (!p) return null;
+  return el('span', { class: 'ult-preco', text: `${reais(p.unit)} · ${p.mercado} ${dataBR(p.data).slice(0, 5)}`, title: `Último preço: ${p.nome}` });
+}
+
 function linhaItem(it) {
   const li = el('li', { class: 'item' + (it.feito ? ' feito' : '') + (S.recemAdicionado === it.id ? ' novo' : ''), 'data-id': it.id },
     el('span', { class: 'chk', role: 'checkbox', ariaChecked: String(!!it.feito) }),
     el('span', { class: 'txt' }, el('span', { class: 'nome', text: it.texto }),
-      it.obs ? el('span', { class: 'obs', text: it.obs }) : null),
+      it.obs ? el('span', { class: 'obs', text: it.obs }) : null,
+      precoEl(it)),
     qtdEl(it),
     el('button', { class: 'edit', text: '✎', ariaLabel: 'Editar ' + it.texto }));
   arrastarParaDetalhe(li, it);
@@ -850,14 +868,15 @@ function renderLista() {
   }
   $('#pendentes').replaceChildren(...topo, ...agrupar(pend));
   $('#btnPadrao').hidden = !PADRAO[l.tipo];
+  $('#btnNota').hidden = l.tipo !== 'mercado';
   const esconder = false;   // "Ocultar" foi substituído por "Limpar"
   $('#feitos').replaceChildren(...(esconder ? [] : (comprar ? agrupar(feitos) : [el('ul', { class: 'itens' }, ...feitos.map(linhaItem))])));
   $('#listaVazia').hidden = its.length > 0;
-  $('#secFeitos').hidden = comprar ? its.length === 0 : feitos.length === 0;
+  $('#secFeitos').hidden = feitos.length === 0;
   $('#tituloFeitos').textContent = comprar ? `${rot(l).baixo} (${feitos.length})` : `Marcados (${feitos.length})`;
   $('#btnLimparFeitos').textContent = 'Limpar';
-  $('#btnLimparFeitos').title = rot(l).desmarcar;
-  $('#btnLimparFeitos').hidden = comprar && !pend.length;
+  $('#btnLimparFeitos').title = `Tirar da lista os itens de "${rot(l).baixo}"`;
+  $('#btnLimparFeitos').hidden = !feitos.length;
   S.recemAdicionado = null;
 
   // Sugestões: itens já usados em listas do mesmo tipo e que não estão na lista aqui
@@ -888,8 +907,7 @@ function ligarEventos() {
   $('#btnLimparFeitos').onclick = () => {
     const l = S.listas.get(S.atual);
     if (!l) return;
-    if (modoComprar(l)) desmarcarTudo(l);
-    else apagarMarcados(l);
+    apagarMarcados(l);
   };
   $('#formItem').onsubmit = (e) => {
     e.preventDefault();
@@ -919,6 +937,9 @@ function ligarEventos() {
     });
   }
   $('#btnPadrao').onclick = dialogoPadrao;
+  $('#btnNota').onclick = dialogoNota;
+  $('#btnCopiarPedido').onclick = copiarPedido;
+  $('#btnAbrirPrecos').onclick = () => { $('#dlgNota').close('cancel'); dialogoPrecos(); };
   $('#dlgPadraoTodos').onclick = () => {
     const todos = [];
     for (const s of catalogo(CAT.tipo)) for (const i of s.itens) if (!CAT.ja.has(norm(i.texto))) todos.push(norm(i.texto));
