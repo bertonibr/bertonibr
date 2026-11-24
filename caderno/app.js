@@ -293,7 +293,25 @@ function blobToImage(blob) {
   });
 }
 
-const bgCache = new Map(); // bgId -> Promise<HTMLImageElement>
+/* Fundos de página (PDF/imagem importados): cache pequeno que libera memória.
+   Num livro de centenas de páginas, guardar todas as imagens decodificadas
+   esgota a memória do iPad e o Safari passa a mostrar páginas em branco. */
+const pageBgCache = new Map(); // id -> { p: Promise<HTMLImageElement> }
+const PAGE_BG_MAX = 6;
+function getPageBg(id) {
+  let e = pageBgCache.get(id);
+  if (e) { pageBgCache.delete(id); pageBgCache.set(id, e); return e.p; } // mais recente
+  e = { p: DB.get('images', id).then((b) => (b ? blobToImage(b) : null)).catch(() => null) };
+  pageBgCache.set(id, e);
+  while (pageBgCache.size > PAGE_BG_MAX) {
+    const [k, old] = pageBgCache.entries().next().value;
+    pageBgCache.delete(k);
+    old.p.then((img) => { if (img) { URL.revokeObjectURL(img.src); img.removeAttribute('src'); } });
+  }
+  return e.p;
+}
+
+const bgCache = new Map(); // fotos coladas: bgId -> Promise<HTMLImageElement>
 function getBg(bgId) {
   if (!bgCache.has(bgId)) {
     bgCache.set(bgId, DB.get('images', bgId).then((b) => (b ? blobToImage(b) : null)).catch(() => null));
@@ -717,16 +735,21 @@ function renderBg(v) {
   ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, c.width, c.height);
   setLogical(ctx, c);
   drawTemplate(ctx, v.page);
-  if (v.page.bgId) {
-    const id = v.page.bgId, win = c._win;
-    getBg(id).then((img) => {
-      if (!img || v.bg !== c || v.page.bgId !== id || c._win !== win || c._vector === win) return;
-      setLogical(ctx, c);
-      ctx.drawImage(img, 0, 0, PAGE_W, v.page.h);
-    });
-  }
-  // PDF importado com o arquivo original: redesenha o texto nítido no tamanho do zoom
-  if (v.page.pdfSrc) renderPdfLayer(v, c, c._win);
+  // PDF importado com o arquivo original: desenha o texto nítido no tamanho do zoom
+  // (sem a imagem de baixa resolução, para economizar memória)
+  if (v.page.pdfSrc) { renderPdfLayer(v, c, c._win); return; }
+  if (v.page.bgId) drawLowRes(v, c, c._win);
+}
+
+function drawLowRes(v, c, win) {
+  const id = v.page.bgId;
+  if (!id) return;
+  getPageBg(id).then((img) => {
+    if (!img || v.bg !== c || v.page.bgId !== id || c._win !== win || c._vector === win) return;
+    const ctx = c.getContext('2d');
+    setLogical(ctx, c);
+    ctx.drawImage(img, 0, 0, PAGE_W, v.page.h);
+  });
 }
 
 /* ---------- PDF vetorial (texto nítido em qualquer zoom) ---------- */
@@ -744,33 +767,36 @@ function getPdf(id) {
   return pdfDocs.get(id);
 }
 
+let pdfRenders = 0;
 async function renderPdfLayer(v, c, win) {
-  if (v._pdfTask) { try { v._pdfTask.cancel(); } catch (_) {} v._pdfTask = null; }
+  // cancela o desenho anterior desta página e espera ele parar de verdade
+  const prev = v._pdfTask;
+  if (prev) { try { prev.cancel(); } catch (_) {} try { await prev.promise; } catch (_) {} }
   const page = v.page;
   const stale = () => v.bg !== c || c._win !== win;
+  if (stale()) return;
   const doc = await getPdf(page.pdfSrc);
-  if (!doc || stale()) return;
+  if (stale()) return;
+  if (!doc) { drawLowRes(v, c, win); return; }
   let pg;
-  try { pg = await doc.getPage(page.pdfPage); } catch (_) { return; }
+  try { pg = await doc.getPage(page.pdfPage); } catch (_) { drawLowRes(v, c, win); return; }
   if (stale()) return;
   const k = c._k;
   const vp = pg.getViewport({ scale: k * PAGE_W / pg.getViewport({ scale: 1 }).width });
-  // desenha num canvas à parte e só copia quando terminar (sem "piscar")
-  const off = document.createElement('canvas');
-  off.width = c.width; off.height = c.height;
-  const octx = off.getContext('2d');
-  octx.fillStyle = '#fff'; octx.fillRect(0, 0, off.width, off.height);
-  const task = pg.render({ canvasContext: octx, viewport: vp, transform: [1, 0, 0, 1, -win.x0 * k, -win.y0 * k] });
+  const ctx = c.getContext('2d');
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, c.width, c.height);
+  const task = pg.render({ canvasContext: ctx, viewport: vp, transform: [1, 0, 0, 1, -win.x0 * k, -win.y0 * k] });
   v._pdfTask = task;
-  try { await task.promise; } catch (_) { off.width = off.height = 0; return; }
+  let ok = true;
+  try { await task.promise; } catch (_) { ok = false; }
   if (v._pdfTask === task) v._pdfTask = null;
-  if (!stale()) {
-    const ctx = c.getContext('2d');
-    ctx.setTransform(1, 0, 0, 1, 0, 0);
-    ctx.drawImage(off, 0, 0);
-    c._vector = win;
-  }
-  off.width = off.height = 0;
+  try { pg.cleanup(); } catch (_) {}
+  // de tempos em tempos libera a memória interna do leitor de PDF
+  if (++pdfRenders % 25 === 0 && ![...S.views.values()].some((x) => x._pdfTask)) { try { doc.cleanup(); } catch (_) {} }
+  if (stale()) return;
+  if (ok) c._vector = win;
+  else if (!v._pdfTask) drawLowRes(v, c, win); // falhou (não foi só cancelado por outro desenho)
 }
 
 function drawTemplate(ctx, page) {
@@ -1490,7 +1516,7 @@ async function exportPdf() {
       ctx.setTransform(k, 0, 0, k, 0, 0);
       drawTemplate(ctx, p);
       if (p.bgId) {
-        const img = await getBg(p.bgId);
+        const img = await getPageBg(p.bgId);
         if (img) { ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.drawImage(img, 0, 0, W, H); ctx.setTransform(k, 0, 0, k, 0, 0); }
       }
       for (const o of p.images || []) {
