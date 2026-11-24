@@ -189,7 +189,7 @@ function newPage(template) {
 
 // ids de todas as imagens usadas por uma página (fundo + fotos)
 function pageImgIds(p) {
-  return [p.bgId, ...(p.images || []).map((o) => o.imgId)].filter(Boolean);
+  return [p.bgId, p.pdfSrc, ...(p.images || []).map((o) => o.imgId)].filter(Boolean);
 }
 
 async function createNotebook(name, color, template, pages) {
@@ -244,7 +244,11 @@ async function fileToPages(file) {
     toast('Carregando PDF…', 0);
     await loadScript(LIBS.pdfjs);
     pdfjsLib.GlobalWorkerOptions.workerSrc = LIBS.pdfjsWorker;
-    const pdf = await pdfjsLib.getDocument({ data: await file.arrayBuffer() }).promise;
+    const buf = await file.arrayBuffer();
+    // guarda o arquivo original para desenhar o texto nítido com zoom
+    const pdfSrc = uid();
+    await DB.put('images', new Blob([buf.slice(0)], { type: 'application/pdf' }), pdfSrc);
+    const pdf = await pdfjsLib.getDocument({ data: new Uint8Array(buf) }).promise;
     for (let i = 1; i <= pdf.numPages; i++) {
       toast(`Importando página ${i} de ${pdf.numPages}…`, 0);
       const pg = await pdf.getPage(i);
@@ -259,7 +263,7 @@ async function fileToPages(file) {
       const bgId = uid();
       await DB.put('images', await canvasToBlob(c), bgId);
       c.width = c.height = 0;
-      pages.push({ id: uid(), h: Math.round(PAGE_W * vp1.height / vp1.width), template: 'blank', strokes: [], bgId });
+      pages.push({ id: uid(), h: Math.round(PAGE_W * vp1.height / vp1.width), template: 'blank', strokes: [], bgId, pdfSrc, pdfPage: i });
     }
   } else if (file.type.startsWith('image/')) {
     toast('Importando imagem…', 0);
@@ -355,7 +359,7 @@ const io = new IntersectionObserver((entries) => {
     if (en.isIntersecting) attach(v); else detach(v);
   }
   updatePageInd();
-}, { root: scroller, rootMargin: '120% 0px' });
+}, { root: scroller, rootMargin: '60% 0px' }); // menos páginas abertas = menos memória (iPad)
 
 function buildPages() {
   for (const v of S.views.values()) { io.unobserve(v.el); detach(v); }
@@ -391,7 +395,7 @@ function layerWindow(v, budget) {
   const want = Math.min(window.devicePixelRatio || 1, 2);
   if (cw * ch * want * want <= budget) return { x0: 0, y0: 0, x1: PAGE_W, y1: v.page.h, dpr: want, partial: false };
   const r = v.el.getBoundingClientRect(), sr = scroller.getBoundingClientRect();
-  const mx = sr.width * 0.25, my = sr.height * 0.35;
+  const mx = sr.width * 0.15, my = sr.height * 0.25;
   let left = Math.max(sr.left - mx, r.left), right = Math.min(sr.right + mx, r.right);
   let top = Math.max(sr.top - my, r.top), bottom = Math.min(sr.bottom + my, r.bottom);
   if (right - left < 1 || bottom - top < 1) { left = r.left; right = r.left + 1; top = r.top; bottom = r.top + 1; }
@@ -456,6 +460,7 @@ function detach(v) {
   if (!v.attached) return;
   if (sel && sel.v === v) deselect();
   if (ssel && ssel.v === v) deselectStrokes();
+  if (v._pdfTask) { try { v._pdfTask.cancel(); } catch (_) {} v._pdfTask = null; }
   for (const c of [v.bg, v.ink]) { c.width = c.height = 0; c.remove(); }
   v.imgs.remove();
   v.bg = v.ink = v.imgs = null;
@@ -464,8 +469,10 @@ function detach(v) {
 
 function renderView(v) {
   if (!v.attached) return;
-  applyWindow(v.ink, v, layerWindow(v, 10e6));
-  applyWindow(v.bg, v, layerWindow(v, 4e6));
+  // papel e escrita usam a MESMA janela: ao rolar, os dois são redesenhados juntos
+  const w = layerWindow(v, 6e6);
+  applyWindow(v.ink, v, w);
+  applyWindow(v.bg, v, w);
   renderBg(v);
   renderInk(v);
   if (ssel && ssel.v === v) renderFloat();
@@ -713,11 +720,57 @@ function renderBg(v) {
   if (v.page.bgId) {
     const id = v.page.bgId, win = c._win;
     getBg(id).then((img) => {
-      if (!img || v.bg !== c || v.page.bgId !== id || c._win !== win) return;
+      if (!img || v.bg !== c || v.page.bgId !== id || c._win !== win || c._vector === win) return;
       setLogical(ctx, c);
       ctx.drawImage(img, 0, 0, PAGE_W, v.page.h);
     });
   }
+  // PDF importado com o arquivo original: redesenha o texto nítido no tamanho do zoom
+  if (v.page.pdfSrc) renderPdfLayer(v, c, c._win);
+}
+
+/* ---------- PDF vetorial (texto nítido em qualquer zoom) ---------- */
+const pdfDocs = new Map(); // pdfSrc -> Promise<PDFDocumentProxy>
+function getPdf(id) {
+  if (!pdfDocs.has(id)) {
+    pdfDocs.set(id, (async () => {
+      const blob = await DB.get('images', id);
+      if (!blob) return null;
+      await loadScript(LIBS.pdfjs);
+      pdfjsLib.GlobalWorkerOptions.workerSrc = LIBS.pdfjsWorker;
+      return pdfjsLib.getDocument({ data: new Uint8Array(await blob.arrayBuffer()) }).promise;
+    })().catch(() => null));
+  }
+  return pdfDocs.get(id);
+}
+
+async function renderPdfLayer(v, c, win) {
+  if (v._pdfTask) { try { v._pdfTask.cancel(); } catch (_) {} v._pdfTask = null; }
+  const page = v.page;
+  const stale = () => v.bg !== c || c._win !== win;
+  const doc = await getPdf(page.pdfSrc);
+  if (!doc || stale()) return;
+  let pg;
+  try { pg = await doc.getPage(page.pdfPage); } catch (_) { return; }
+  if (stale()) return;
+  const k = c._k;
+  const vp = pg.getViewport({ scale: k * PAGE_W / pg.getViewport({ scale: 1 }).width });
+  // desenha num canvas à parte e só copia quando terminar (sem "piscar")
+  const off = document.createElement('canvas');
+  off.width = c.width; off.height = c.height;
+  const octx = off.getContext('2d');
+  octx.fillStyle = '#fff'; octx.fillRect(0, 0, off.width, off.height);
+  const task = pg.render({ canvasContext: octx, viewport: vp, transform: [1, 0, 0, 1, -win.x0 * k, -win.y0 * k] });
+  v._pdfTask = task;
+  try { await task.promise; } catch (_) { off.width = off.height = 0; return; }
+  if (v._pdfTask === task) v._pdfTask = null;
+  if (!stale()) {
+    const ctx = c.getContext('2d');
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.drawImage(off, 0, 0);
+    c._vector = win;
+  }
+  off.width = off.height = 0;
 }
 
 function drawTemplate(ctx, page) {
@@ -1326,7 +1379,8 @@ async function deleteCurrentPage() {
   S.redo = S.redo.filter((a) => a.pageId !== p.id);
   updateUndoButtons();
   await DB.del('pages', p.id);
-  for (const id of pageImgIds(p)) await DB.del('images', id);
+  const still = new Set(S.pages.flatMap(pageImgIds));
+  for (const id of pageImgIds(p)) if (!still.has(id)) await DB.del('images', id);
   buildPages();
   markDirty();
   updatePageInd();
