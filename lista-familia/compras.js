@@ -194,3 +194,140 @@ function ultimoPreco(texto) {
   ultimoCache.mapa.set(k, melhor);
   return melhor;
 }
+
+/* ---------- Ler a foto da nota com o Claude (leitura automática) ----------
+   Chamada direta do navegador à API da Anthropic (o app não tem servidor).
+   A chave fica no banco de vocês (documento "cfg_anthropic" em "itens",
+   que só as contas da família leem) — nunca no código do GitHub. */
+const CHAVE_DOC = 'cfg_anthropic';
+const MODELO_NOTA = 'claude-opus-5-5';
+const chaveClaude = () => ((S.itens.get(CHAVE_DOC) || {}).chave || '');
+
+const ESQUEMA_NOTA = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['mercado', 'data', 'total_nota', 'itens'],
+  properties: {
+    mercado: { type: 'string' },
+    data: { type: 'string' },
+    total_nota: { type: 'number' },
+    itens: {
+      type: 'array',
+      items: {
+        type: 'object',
+        additionalProperties: false,
+        required: ['nome', 'qtd', 'unit', 'total'],
+        properties: { nome: { type: 'string' }, qtd: { type: 'number' }, unit: { type: 'number' }, total: { type: 'number' } },
+      },
+    },
+  },
+};
+
+const PEDIDO_FOTO = `Estas fotos são de uma nota fiscal de supermercado brasileira (NFC-e ou cupom). Se houver mais de uma foto, são partes da mesma nota, em ordem.
+Extraia:
+- mercado: o nome do estabelecimento como as pessoas o chamam (nome fantasia; se só houver razão social, uma forma curta e legível dela).
+- data: a data de emissão no formato AAAA-MM-DD (vazio se não aparecer).
+- total_nota: o valor total pago da nota.
+- itens: todos os produtos, na ordem da nota, com nome (como impresso, mas em letras normais em vez de tudo maiúsculo), qtd (quantidade ou peso em kg), unit (valor unitário) e total (valor total do item). Se um item tiver desconto, total já com o desconto.
+Não invente produtos: se algum trecho estiver ilegível, deixe-o de fora.`;
+
+async function reduzirFoto(arquivo) {
+  const url = URL.createObjectURL(arquivo);
+  try {
+    const img = await new Promise((ok, erro) => { const i = new Image(); i.onload = () => ok(i); i.onerror = erro; i.src = url; });
+    const MAX = 1568;   // maior lado recomendado pela API
+    const f = Math.min(1, MAX / Math.max(img.naturalWidth, img.naturalHeight));
+    const c = document.createElement('canvas');
+    c.width = Math.round(img.naturalWidth * f); c.height = Math.round(img.naturalHeight * f);
+    c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
+    return c.toDataURL('image/jpeg', 0.85).split(',')[1];
+  } finally { URL.revokeObjectURL(url); }
+}
+
+async function lerFotosNota(arquivos) {
+  const fotos = [];
+  for (const a of arquivos) fotos.push(await reduzirFoto(a));
+  const resp = await fetch('https://api.anthropic.com/v1/messages', {
+    method: 'POST',
+    headers: {
+      'content-type': 'application/json',
+      'x-api-key': chaveClaude(),
+      'anthropic-version': '2026-10-21',
+      'anthropic-beta': 'server-side-fallback-2026-07-01',
+      'anthropic-dangerous-direct-browser-access': 'true',
+    },
+    body: JSON.stringify({
+      model: MODELO_NOTA,
+      max_tokens: 16000,
+      fallbacks: 'default',
+      output_config: { effort: 'medium', format: { type: 'json_schema', schema: ESQUEMA_NOTA } },
+      messages: [{
+        role: 'user',
+        content: [
+          ...fotos.map((data) => ({ type: 'image', source: { type: 'base64', media_type: 'image/jpeg', data } })),
+          { type: 'text', text: PEDIDO_FOTO },
+        ],
+      }],
+    }),
+  });
+  if (!resp.ok) {
+    let msg = '';
+    try { msg = (await resp.json()).error?.message || ''; } catch (_) {}
+    const e = new Error(msg || `Erro ${resp.status}`); e.status = resp.status; throw e;
+  }
+  const r = await resp.json();
+  if (r.stop_reason === 'refusal') throw new Error('O Claude não quis ler esta imagem.');
+  if (r.stop_reason === 'max_tokens') throw new Error('A nota é longa demais para uma leitura. Tente em partes.');
+  const texto = (r.content || []).filter((b) => b.type === 'text').map((b) => b.text).join('');
+  return JSON.parse(texto);
+}
+
+async function fotoDaNota(arquivos) {
+  if (!arquivos || !arquivos.length) return;
+  if (!chaveClaude()) { configurarChave(); return; }
+  const btn = $('#btnFotoNota');
+  const txtOrig = btn.textContent;
+  btn.disabled = true; btn.textContent = '⏳ Lendo a nota…';
+  $('#notaPrevia').textContent = 'Lendo a foto com o Claude… pode levar uns 30 segundos.';
+  try {
+    const n = await lerFotosNota(arquivos);
+    if (n.mercado) $('#notaMercado').value = n.mercado.trim();
+    if (/^\d{4}-\d{2}-\d{2}$/.test(n.data || '')) $('#notaData').value = n.data;
+    const fmt = (v) => String(+(+v).toFixed(3)).replace('.', ',');
+    $('#notaTexto').value = (n.itens || []).map((i) => `${i.nome}; ${fmt(i.qtd)}; ${fmt(i.unit)}; ${fmt(i.total)}`).join('\n');
+    $('#notaTexto').dispatchEvent(new Event('input'));
+    const soma = (n.itens || []).reduce((s, i) => s + (+i.total || 0), 0);
+    if (n.total_nota) {
+      const dif = Math.abs(soma - n.total_nota);
+      $('#notaPrevia').textContent += dif < 0.05
+        ? ` · bate com o total da nota ✓`
+        : ` · ⚠ total impresso na nota: ${reais(n.total_nota)} (diferença de ${reais(dif)} — confira)`;
+    }
+  } catch (e) {
+    console.error(e);
+    if (e.status === 401) { toast('A chave do Claude não funcionou. Confira em ⋮ → Leitura automática de notas.', null, 6000); }
+    else if (e.status === 429 || e.status === 529) toast('O Claude está ocupado agora. Tente de novo em instantes.', null, 5000);
+    else toast('Não consegui ler a foto: ' + (e.message || e), null, 6000);
+    $('#notaTexto').dispatchEvent(new Event('input'));
+  } finally {
+    btn.disabled = false; btn.textContent = txtOrig;
+    $('#notaFotoInput').value = '';
+  }
+}
+
+function configurarChave() {
+  const atual = chaveClaude();
+  const v = prompt(
+    (atual ? 'Leitura automática está LIGADA.\nPara trocar, cole a nova chave. Para desligar, apague e toque em OK.\n\n'
+           : 'Para o app ler a foto da nota sozinho, cole aqui a chave de API da Anthropic (começa com sk-ant-).\nVocê cria em console.anthropic.com → API keys.\n\n')
+    + 'A chave fica guardada só no banco de vocês dois.', atual ? atual.slice(0, 12) + '…' : '');
+  if (v === null) return;
+  const chave = v.trim();
+  if (chave.endsWith('…')) return;   // não mexeu
+  const ref = db.collection('itens').doc(CHAVE_DOC);
+  if (!chave) { gravar(ref.delete()); S.itens.delete(CHAVE_DOC); toast('Leitura automática desligada'); return; }
+  if (!/^sk-ant-/.test(chave)) { toast('Essa não parece uma chave da Anthropic (começa com sk-ant-).', null, 5000); return; }
+  S.itens.set(CHAVE_DOC, { id: CHAVE_DOC, listaId: '__config__', chave });
+  gravar(ref.set({ listaId: '__config__', chave }));
+  toast('Leitura automática ligada ✓ — agora é só tirar a foto da nota', null, 5000);
+}

@@ -708,6 +708,7 @@ function menuInicio() {
   menu('Lista Família', [
     { texto: '🧾  Lançar nota fiscal', fn: dialogoNota },
     { texto: '📈  Histórico de preços', fn: () => dialogoPrecos() },
+    { texto: '🔑  Leitura automática de notas', fn: configurarChave },
     { texto: 'Sair da conta', fn: sair },
   ], S.user ? `Conectado como ${S.user.email}` : '');
 }
@@ -1001,6 +1002,8 @@ function ligarEventos() {
   $('#btnPadrao').onclick = dialogoPadrao;
   $('#btnNota').onclick = dialogoNota;
   $('#btnCopiarPedido').onclick = copiarPedido;
+  $('#btnFotoNota').onclick = () => { if (!chaveClaude()) configurarChave(); else $('#notaFotoInput').click(); };
+  $('#notaFotoInput').onchange = (e) => fotoDaNota([...e.target.files]);
   $('#btnAbrirPrecos').onclick = () => { $('#dlgNota').close('cancel'); dialogoPrecos(); };
   $('#dlgPadraoTodos').onclick = () => {
     const todos = [];

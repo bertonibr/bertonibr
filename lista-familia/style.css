@@ -276,3 +276,5 @@ dialog.grande .janela { max-height: calc(100dvh - 40px); }
 .secao-linha { display: flex; flex-direction: column; gap: 6px; }
 .lembrar { display: flex; align-items: center; gap: 8px; font-size: 14px; color: var(--suave); }
 .lembrar input { width: 18px; height: 18px; accent-color: var(--cor); }
+.foto-nota { width: 100%; min-height: 50px; font-size: 17px; }
+.foto-nota:disabled { opacity: .7; }
