@@ -793,7 +793,7 @@ async function renderPdfLayer(v, c, win) {
   if (v._pdfTask === task) v._pdfTask = null;
   try { pg.cleanup(); } catch (_) {}
   // de tempos em tempos libera a memória interna do leitor de PDF
-  if (++pdfRenders % 25 === 0 && ![...S.views.values()].some((x) => x._pdfTask)) { try { doc.cleanup(); } catch (_) {} }
+  if (++pdfRenders % 25 === 0 && ![...S.views.values()].some((x) => x._pdfTask)) { try { Promise.resolve(doc.cleanup()).catch(() => {}); } catch (_) {} }
   if (stale()) return;
   if (ok) c._vector = win;
   else if (!v._pdfTask) drawLowRes(v, c, win); // falhou (não foi só cancelado por outro desenho)
