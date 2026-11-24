@@ -41,10 +41,14 @@ function numBR(s) {
 // Lê o texto colado e devolve [{nome, qtd, unit, total}]
 function lerNota(texto) {
   const itens = [];
-  for (let linha of texto.split(/\r?\n/)) {
+  // Com ";" separando os campos, o "|" (ou a quebra de linha) separa um produto do outro.
+  // Sem ";", os campos podem vir separados por tab ou "|".
+  const comPontoVirgula = texto.includes(';');
+  const linhas = comPontoVirgula ? texto.split(/\r?\n|\|/) : texto.split(/\r?\n/);
+  for (let linha of linhas) {
     linha = linha.replace(/^\s*(?:[-–—*•·]+|\d+[.)-]\s)\s*/, '').trim();
     if (!linha) continue;
-    let partes = linha.split(/\s*[;\t|]\s*/).map((p) => p.trim()).filter((p) => p !== '');
+    let partes = linha.split(comPontoVirgula ? /\s*[;\t]\s*/ : /\s*[\t|]\s*/).map((p) => p.trim()).filter((p) => p !== '');
     if (partes.length < 2) continue;
     const nome = partes[0].replace(/\s+/g, ' ');
     if (!/[a-zà-ú]/i.test(nome)) continue;
@@ -72,7 +76,10 @@ async function dialogoNota() {
   const previa = () => {
     const its = lerNota($('#notaTexto').value);
     const tot = its.reduce((s, i) => s + i.total, 0);
-    $('#notaPrevia').textContent = its.length ? `${its.length} ${its.length === 1 ? 'produto lido' : 'produtos lidos'} — total ${reais(tot)}` : 'Cole o texto da nota acima.';
+    const temTexto = $('#notaTexto').value.trim().length > 0;
+    $('#notaPrevia').textContent = its.length
+      ? `${its.length} ${its.length === 1 ? 'produto lido' : 'produtos lidos'} — total ${reais(tot)}`
+      : (temTexto ? 'Não consegui ler os produtos. O formato é: Produto; Quantidade; Valor unitário; Valor total' : 'Cole o texto da nota acima.');
     $('#notaSalvar').disabled = !its.length;
   };
   $('#notaTexto').oninput = previa;
