@@ -5,7 +5,7 @@
    Coordenadas das páginas são lógicas: largura = 1000.
    ========================================================= */
 
-const APP_VERSION = 19;
+const APP_VERSION = 20;
 const PAGE_W = 1000;
 const A4_H = 1414;
 const PEN_COLORS = ['#1a1a1a', '#1e4fd8', '#d62828', '#2a9d4b', '#e67700', '#7b2cbf'];
@@ -126,6 +126,7 @@ function loadScript(src) {
    BIBLIOTECA
    ========================================================= */
 async function showLibrary() {
+  savePos();
   await flushSave();
   closeEditor();
   $('#editor').hidden = true;
@@ -339,11 +340,41 @@ async function openNotebook(id) {
   $('#library').hidden = true;
   $('#editor').hidden = false;
   $('#nbTitle').textContent = nb.name;
+  // volta para onde a pessoa parou (página, posição e zoom)
+  const pos = loadPos(id);
+  if (pos && pos.zoom) S.zoom = clamp(pos.zoom, 0.5, maxZoom());
   buildPages();
   scroller.scrollTo(0, 0);
+  if (pos) restorePos(pos);
+  try { localStorage.setItem('caderno.lastNb', id); } catch (_) {}
   updateUndoButtons();
   updatePageInd();
 }
+
+/* ---------- Lembrar onde parou ---------- */
+const posKey = (id) => 'caderno.pos.' + id;
+function loadPos(id) { try { return JSON.parse(localStorage.getItem(posKey(id)) || 'null'); } catch (_) { return null; } }
+function savePos() {
+  if (!S.nb || !S.pages.length) return;
+  const st = scroller.scrollTop;
+  // página que está no topo da tela e quanto dela já passou
+  let page = S.pages[0], frac = 0;
+  for (const p of S.pages) {
+    const v = S.views.get(p.id);
+    if (!v) continue;
+    if (v.el.offsetTop + v.el.offsetHeight > st) { page = p; frac = (st - v.el.offsetTop) / v.el.offsetHeight; break; }
+  }
+  const xfrac = scroller.scrollWidth > scroller.clientWidth ? scroller.scrollLeft / scroller.scrollWidth : 0;
+  try { localStorage.setItem(posKey(S.nb.id), JSON.stringify({ page: page.id, frac, xfrac, zoom: S.zoom })); } catch (_) {}
+}
+function restorePos(pos) {
+  const v = S.views.get(pos.page);
+  if (!v) return;
+  scroller.scrollTop = v.el.offsetTop + (pos.frac || 0) * v.el.offsetHeight;
+  if (pos.xfrac) scroller.scrollLeft = pos.xfrac * scroller.scrollWidth;
+}
+let posTimer = 0;
+function savePosSoon() { clearTimeout(posTimer); posTimer = setTimeout(savePos, 400); }
 
 /* Recarrega o caderno aberto (após receber versão do Drive), mantendo a posição */
 async function reloadOpenNotebook() {
@@ -1390,8 +1421,8 @@ async function flushSave() {
   await DB.put('notebooks', S.nb);
   Sync.schedule();
 }
-document.addEventListener('visibilitychange', () => { if (document.hidden) flushSave(); });
-window.addEventListener('pagehide', () => flushSave());
+document.addEventListener('visibilitychange', () => { if (document.hidden) { savePos(); flushSave(); } });
+window.addEventListener('pagehide', () => { savePos(); flushSave(); });
 
 /* ---------------- Páginas ---------------- */
 function currentIndex() {
@@ -1462,6 +1493,7 @@ function setZoom(z, fx, fy, tx, ty) {
   const ratio = pageCssW() / oldW;
   for (const v of S.views.values()) sizeView(v);
   for (const v of S.views.values()) if (v.attached) renderView(v);
+  savePosSoon();
   scroller.scrollLeft = cx * ratio + pagesEl.offsetLeft - tx;
   scroller.scrollTop = cy * ratio + pagesEl.offsetTop - ty;
 }
@@ -1660,7 +1692,7 @@ function bindUI() {
     } catch (err) { console.error(err); toast('Erro ao importar: ' + err.message, 4000); }
   };
 
-  $('#btnBack').onclick = showLibrary;
+  $('#btnBack').onclick = () => { try { localStorage.removeItem('caderno.lastNb'); } catch (_) {} showLibrary(); };
   document.querySelectorAll('.sync-btn').forEach((b) => (b.onclick = (e) => Sync.menu(e.currentTarget)));
   $('#nbTitle').onclick = () => {
     const n = prompt('Nome do caderno', S.nb.name);
@@ -1711,7 +1743,7 @@ function bindUI() {
     if (lasso && e.pointerId === lasso.id) { lasso = null; releaseLive(); return; }
     if (cur && e.pointerId === cur.id) cancelStroke();
   });
-  scroller.addEventListener('scroll', () => requestAnimationFrame(updatePageInd), { passive: true });
+  scroller.addEventListener('scroll', () => { requestAnimationFrame(updatePageInd); savePosSoon(); }, { passive: true });
   // com zoom alto só a parte visível fica desenhada: redesenha ao rolar
   let winRaf = 0;
   const refreshWindows = () => {
@@ -1783,6 +1815,11 @@ function bindUI() {
     }).catch(() => {});
   }
   if (Sync.start()) return; // renovando acesso ao Google
-  if (returnNb && (await DB.get('notebooks', returnNb))) await openNotebook(returnNb);
+  // reabre o caderno que estava aberto quando o app foi fechado
+  let last = null;
+  try { last = localStorage.getItem('caderno.lastNb'); } catch (_) {}
+  const okNb = async (id) => { const n = id && (await DB.get('notebooks', id)); return n && !n.deleted; };
+  if (await okNb(returnNb)) await openNotebook(returnNb);
+  else if (await okNb(last)) await openNotebook(last);
   else await showLibrary();
 })();
