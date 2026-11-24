@@ -5,7 +5,7 @@
    Coordenadas das páginas são lógicas: largura = 1000.
    ========================================================= */
 
-const APP_VERSION = 20;
+const APP_VERSION = 21;
 const PAGE_W = 1000;
 const A4_H = 1414;
 const PEN_COLORS = ['#1a1a1a', '#1e4fd8', '#d62828', '#2a9d4b', '#e67700', '#7b2cbf'];
@@ -1481,21 +1481,34 @@ function setTemplate(t, all) {
 }
 
 /* ---------------- Zoom ---------------- */
+/* Zoom ancorado num ponto da PÁGINA: o ponto que estava sob os dedos (fx,fy)
+   termina exatamente em (tx,ty). (Antes o cálculo usava o conteúdo inteiro,
+   e os espaços entre páginas — que não crescem com o zoom — faziam a tela
+   "pular" depois de soltar os dedos.) Coordenadas relativas ao scroller. */
 function setZoom(z, fx, fy, tx, ty) {
   z = clamp(z, 0.5, maxZoom());
-  const old = S.zoom;
-  if (Math.abs(z - old) < 0.001) return;
+  if (Math.abs(z - S.zoom) < 0.001) return;
   if (fx === undefined) { fx = tx = scroller.clientWidth / 2; fy = ty = scroller.clientHeight / 2; }
-  const cx = scroller.scrollLeft + fx - pagesEl.offsetLeft;
-  const cy = scroller.scrollTop + fy - pagesEl.offsetTop;
-  const oldW = pageCssW();
+  const sr = scroller.getBoundingClientRect();
+  const px = sr.left + fx, py = sr.top + fy;
+  // página sob o ponto (ou a mais próxima) e a posição dele dentro dela (0..1)
+  let anchor = null, best = Infinity;
+  for (const v of S.views.values()) {
+    const r = v.el.getBoundingClientRect();
+    const d = py < r.top ? r.top - py : py > r.bottom ? py - r.bottom : 0;
+    if (d < best) { best = d; anchor = { v, u: (px - r.left) / r.width, w: (py - r.top) / r.height }; }
+    if (d === 0) break;
+  }
   S.zoom = z;
-  const ratio = pageCssW() / oldW;
   for (const v of S.views.values()) sizeView(v);
+  if (anchor) {
+    const r = anchor.v.el.getBoundingClientRect();
+    scroller.scrollLeft += r.left + anchor.u * r.width - (sr.left + tx);
+    scroller.scrollTop += r.top + anchor.w * r.height - (sr.top + ty);
+  }
+  // redesenha já na posição final
   for (const v of S.views.values()) if (v.attached) renderView(v);
   savePosSoon();
-  scroller.scrollLeft = cx * ratio + pagesEl.offsetLeft - tx;
-  scroller.scrollTop = cy * ratio + pagesEl.offsetTop - ty;
 }
 
 /* Pinça com dois dedos + bloqueio de rolagem pela Pencil */
