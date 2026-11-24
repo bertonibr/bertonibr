@@ -107,16 +107,25 @@
 
 <dialog id="dlgItem">
   <form method="dialog" class="janela">
-    <h2>Editar item</h2>
-    <input id="dlgItemTexto" type="text" maxlength="200" required>
+    <div class="obs-topo">
+      <h2>Editar item</h2>
+      <button value="cancel" formnovalidate class="icone fechar" aria-label="Fechar">✕</button>
+    </div>
+    <div class="obs-linha">
+      <input id="dlgItemTexto" type="text" maxlength="200" required>
+      <button value="ok" class="btn primario ok" aria-label="Salvar">✓</button>
+    </div>
+    <div id="dlgItemSecaoLinha" class="secao-linha">
+      <label class="linha-qtd">Departamento <select id="dlgItemSecao" class="sel-secao"></select></label>
+      <label class="lembrar"><input id="dlgItemLembrar" type="checkbox" checked> Lembrar na lista padrão</label>
+    </div>
     <label class="linha-qtd">Quantidade
       <input id="dlgItemQtd" type="number" min="1" max="999" inputmode="numeric"></label>
     <input id="dlgItemObs" type="text" maxlength="120" placeholder="Detalhe (marca, maduro, verde…)">
     <p id="dlgItemQuem" class="nota"></p>
     <div class="botoes">
-      <button value="del" formnovalidate class="btn perigo">Excluir</button>
+      <button value="del" formnovalidate class="btn perigo">Excluir item</button>
       <span class="espaco"></span>
-      <button value="cancel" formnovalidate class="btn">Cancelar</button>
       <button value="ok" class="btn primario">Salvar</button>
     </div>
   </form>

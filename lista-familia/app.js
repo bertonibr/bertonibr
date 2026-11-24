@@ -427,6 +427,12 @@ function catalogoCalc(tipo) {
   return [...grupos].map(([secao, itens]) => ({ secao, itens }));
 }
 
+// Departamento do item na lista: o escolhido à mão (segurar 3 s) ou o da lista padrão
+function secaoItem(l, it) {
+  if (it.secao && (it.secao === 'Outros' || catalogo(l.tipo).some((s) => s.secao === it.secao))) return it.secao;
+  return secaoDe(l.tipo, it.texto);
+}
+
 function secaoDe(tipo, texto) {
   const k = norm(texto);
   for (const s of catalogo(tipo)) if (s.itens.some((i) => norm(i.texto) === k)) return s.secao;
@@ -643,6 +649,15 @@ async function editarItem(it) {
   $('#dlgItemQtd').value = it.qtd || 1;
   $('#dlgItemObs').value = it.obs || '';
   $('#dlgItemQuem').textContent = it.criadoPor ? `Adicionado por ${it.criadoPor}` : '';
+  const l = S.listas.get(it.listaId);
+  const temCat = !!(l && PADRAO[l.tipo]);
+  const secAtual = temCat ? secaoItem(l, it) : null;
+  $('#dlgItemSecaoLinha').hidden = !temCat;
+  if (temCat) {
+    const secs = [...catalogo(l.tipo).map((s) => s.secao), 'Outros'];
+    $('#dlgItemSecao').replaceChildren(...secs.map((s) => el('option', { value: s, text: s, selected: s === secAtual })));
+    $('#dlgItemLembrar').checked = true;
+  }
   d.returnValue = '';
   d.showModal();
   await new Promise((r) => d.addEventListener('close', r, { once: true }));
@@ -658,6 +673,18 @@ async function editarItem(it) {
     if (qtd !== (it.qtd || 1)) mud.qtd = qtd;
     const obs = $('#dlgItemObs').value.trim().replace(/\s+/g, ' ').slice(0, 120);
     if (obs !== (it.obs || '')) mud.obs = obs;
+    if (temCat) {
+      const sec = $('#dlgItemSecao').value;
+      if (sec !== secAtual) mud.secao = sec;
+      // Lembrar: guarda o departamento na lista padrão, para da próxima vez já cair lá
+      const nome = mud.texto || it.texto;
+      if (sec !== 'Outros' && $('#dlgItemLembrar').checked && secaoDe(l.tipo, nome) !== sec) {
+        garantirCatalogo(l.tipo);
+        const idc = idCatalogo(l.tipo, nome);
+        if (idc) { const c = S.itens.get(idc); S.itens.set(idc, { ...c, secao: sec }); S.ver++; gravar(db.collection('itens').doc(idc).update({ secao: sec, ordem: Date.now() })); }
+        else adicionarNoCatalogo(l.tipo, sec, nome);
+      }
+    }
     if (Object.keys(mud).length) gravar(db.collection('itens').doc(it.id).update(mud));
   }
 }
@@ -786,14 +813,27 @@ function qtdEl(it) {
 // Arrastar o item da direita para a esquerda abre a caixinha de detalhe.
 function arrastarParaDetalhe(li, it) {
   let x0 = 0, y0 = 0, dx = 0, ativo = false, horizontal = false, id = null;
+  // Segurar ~3 s parado: abre editar / trocar departamento / excluir
+  let timerSegurar = 0, disparou = false;
+  const pararSegurar = () => { clearTimeout(timerSegurar); li.classList.remove('segurando'); };
   li.addEventListener('pointerdown', (e) => {
     if (e.button || e.target.closest('.qtd, .edit')) return;
-    x0 = e.clientX; y0 = e.clientY; dx = 0; ativo = true; horizontal = false; id = e.pointerId;
+    x0 = e.clientX; y0 = e.clientY; dx = 0; ativo = true; horizontal = false; id = e.pointerId; disparou = false;
     S.arrastando = true;               // segura atualizações da tela enquanto o dedo está no item
+    li.classList.add('segurando');
+    timerSegurar = setTimeout(() => {
+      li.classList.remove('segurando');
+      disparou = true; ativo = false; li._arrastou = true;
+      soltar();
+      if (navigator.vibrate) navigator.vibrate(30);
+      editarItem(it);
+    }, SEGURAR_MS);
   });
+  li.addEventListener('contextmenu', (e) => e.preventDefault());
   li.addEventListener('pointermove', (e) => {
     if (!ativo || e.pointerId !== id) return;
     const ddx = e.clientX - x0, ddy = e.clientY - y0;
+    if (Math.abs(ddx) > 10 || Math.abs(ddy) > 10) pararSegurar();
     if (!horizontal) {
       if (Math.abs(ddy) > 12 && Math.abs(ddy) > Math.abs(ddx)) { ativo = false; soltar(); return; }   // rolando a tela
       if (ddx < -12 && Math.abs(ddx) > Math.abs(ddy)) { horizontal = true; try { li.setPointerCapture(id); } catch (_) {} li.classList.add('arrastando'); }
@@ -809,6 +849,8 @@ function arrastarParaDetalhe(li, it) {
     if (S.renderPendente) setTimeout(render, 0);   // depois do clique ser tratado
   };
   li.addEventListener('pointerup', () => {
+    pararSegurar();
+    if (disparou) { setTimeout(() => { li._arrastou = false; }, 400); return; }
     if (!ativo) return soltar();
     ativo = false;
     if (!horizontal) return soltar();
@@ -820,6 +862,7 @@ function arrastarParaDetalhe(li, it) {
     if (dx < -70) editarDetalhe(it);
   });
   li.addEventListener('pointercancel', () => {
+    pararSegurar();
     ativo = false; li.style.transform = ''; li.classList.remove('arrastando', 'pronto');
     soltar();
   });
@@ -881,7 +924,7 @@ function renderLista() {
   const agrupar = (lista) => {
     if (!PADRAO[l.tipo] || !lista.length) return lista.length ? [el('ul', { class: 'itens' }, ...lista.map(linhaItem))] : [];
     const grupos = new Map([...PADRAO[l.tipo].map((s) => s.secao), 'Outros'].map((s) => [s, []]));
-    for (const it of lista) grupos.get(secaoDe(l.tipo, it.texto)).push(it);
+    for (const it of lista) { const s = secaoItem(l, it); (grupos.get(s) || grupos.get('Outros')).push(it); }
     const partes = [];
     for (const [sec, g] of grupos) {
       if (g.length) partes.push(el('h3', { class: 'sec', text: `${sec} (${g.length})` }), el('ul', { class: 'itens' }, ...g.map(linhaItem)));
