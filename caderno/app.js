@@ -5,6 +5,7 @@
    Coordenadas das páginas são lógicas: largura = 1000.
    ========================================================= */
 
+const APP_VERSION = 19;
 const PAGE_W = 1000;
 const A4_H = 1414;
 const PEN_COLORS = ['#1a1a1a', '#1e4fd8', '#d62828', '#2a9d4b', '#e67700', '#7b2cbf'];
@@ -82,6 +83,7 @@ const S = {
 let toastTimer;
 function toast(msg, ms = 2200) {
   const t = $('#toast');
+  t.onclick = null;
   t.textContent = msg; t.hidden = false;
   clearTimeout(toastTimer);
   if (ms) toastTimer = setTimeout(() => (t.hidden = true), ms);
@@ -377,7 +379,7 @@ const io = new IntersectionObserver((entries) => {
     if (en.isIntersecting) attach(v); else detach(v);
   }
   updatePageInd();
-}, { root: scroller, rootMargin: '60% 0px' }); // menos páginas abertas = menos memória (iPad)
+}, { root: scroller, rootMargin: '25% 0px' }); // só as páginas na tela (e quase na tela) ficam abertas: menos memória
 
 function buildPages() {
   for (const v of S.views.values()) { io.unobserve(v.el); detach(v); }
@@ -485,12 +487,32 @@ function detach(v) {
   v.attached = false;
 }
 
+// fator de memória: diminui sozinho se o iPad recusar canvases grandes
+let budgetScale = 1;
+function canvasWorks(c) {
+  try {
+    const ctx = c.getContext('2d');
+    if (!ctx) return false;
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.fillStyle = '#fff';
+    ctx.fillRect(0, 0, 1, 1);
+    return ctx.getImageData(0, 0, 1, 1).data[3] === 255;
+  } catch (_) { return false; }
+}
+
 function renderView(v) {
   if (!v.attached) return;
   // papel e escrita usam a MESMA janela: ao rolar, os dois são redesenhados juntos
-  const w = layerWindow(v, 6e6);
+  const w = layerWindow(v, 4e6 * budgetScale);
   applyWindow(v.ink, v, w);
   applyWindow(v.bg, v, w);
+  // o iPad recusou a memória do canvas? (fica transparente/branco) -> reduz e tenta de novo
+  if (!canvasWorks(v.bg) && budgetScale > 0.2) {
+    budgetScale *= 0.6;
+    console.warn('canvas sem memória; reduzindo resolução para', budgetScale.toFixed(2));
+    for (const x of S.views.values()) if (x.attached && x !== v) applyWindow(x.ink, x, layerWindow(x, 4e6 * budgetScale));
+    return renderView(v);
+  }
   renderBg(v);
   renderInk(v);
   if (ssel && ssel.v === v) renderFloat();
@@ -1044,7 +1066,7 @@ function onLassoMove(e) {
 function onLassoEnd(e) {
   if (!lasso || e.pointerId !== lasso.id) return false;
   const l = lasso; lasso = null;
-  live.remove();
+  releaseLive();
   const v = l.v;
   if (l.len < 15) {
     // toque: seleciona a foto tocada (ou limpa a seleção)
@@ -1160,6 +1182,8 @@ function drawStroke(ctx, s) {
 /* ---------------- Desenho (Pointer Events) ---------------- */
 let cur = null;          // gesto de desenho/apagar em andamento
 const live = document.createElement('canvas');
+// tira o canvas temporário da página e libera a memória dele (iPad)
+function releaseLive() { live.remove(); live.width = live.height = 0; }
 let liveRaf = 0;
 let fingerCount = 0;     // dedos na tela (touch)
 
@@ -1245,7 +1269,7 @@ function onPointerUp(e) {
   if (onGestureEnd(e) || onSGestureEnd(e) || onLassoEnd(e)) return;
   if (!cur || e.pointerId !== cur.id) return;
   const c = cur; cur = null;
-  live.remove();
+  releaseLive();
   if (c.erase) {
     if (c.changed) commitChange(c.v.page, c.before);
     return;
@@ -1262,7 +1286,7 @@ function onPointerUp(e) {
 function cancelStroke() {
   if (!cur) return;
   if (cur.erase && cur.changed) { cur.v.page.strokes = cur.before; renderInk(cur.v); }
-  cur = null; live.remove();
+  cur = null; releaseLive();
 }
 
 function scheduleLive() {
@@ -1665,6 +1689,7 @@ function bindUI() {
     { label: 'Inserir foto na página', action: () => $('#filePhoto').click() },
     { label: 'Inserir PDF ou imagem como páginas', action: () => $('#fileInsert').click() },
     { label: 'Exportar PDF', action: exportPdf },
+    { info: `Versão do app: ${APP_VERSION}` },
     { label: 'Folha de treino (cálculo)', action: () => MathInk.sheet() },
     '-',
     { label: 'Limpar página', action: () => {
@@ -1683,7 +1708,7 @@ function bindUI() {
   window.addEventListener('pointerup', onPointerUp);
   window.addEventListener('pointercancel', (e) => {
     if (onGestureEnd(e) || onSGestureEnd(e)) return;
-    if (lasso && e.pointerId === lasso.id) { lasso = null; live.remove(); return; }
+    if (lasso && e.pointerId === lasso.id) { lasso = null; releaseLive(); return; }
     if (cur && e.pointerId === cur.id) cancelStroke();
   });
   scroller.addEventListener('scroll', () => requestAnimationFrame(updatePageInd), { passive: true });
@@ -1742,8 +1767,20 @@ function bindUI() {
     navigator.serviceWorker.addEventListener('controllerchange', () => {
       if (reloading) return;
       const go = () => { if (!reloading) { reloading = true; location.reload(); } };
-      if (!S.nb) go(); else window.addEventListener('caderno:library', go, { once: true });
+      if (!S.nb) { go(); return; }
+      // dentro de um caderno: avisa e deixa a pessoa escolher a hora
+      window.addEventListener('caderno:library', go, { once: true });
+      const t = $('#toast');
+      t.innerHTML = 'Nova versão do app disponível — <b>toque aqui para atualizar</b>';
+      t.hidden = false;
+      clearTimeout(toastTimer);
+      t.onclick = async () => { t.onclick = null; await flushSave(); go(); };
     });
+    // procura atualização ao abrir e ao voltar para o app
+    navigator.serviceWorker.ready.then((reg) => {
+      reg.update().catch(() => {});
+      document.addEventListener('visibilitychange', () => { if (!document.hidden) reg.update().catch(() => {}); });
+    }).catch(() => {});
   }
   if (Sync.start()) return; // renovando acesso ao Google
   if (returnNb && (await DB.get('notebooks', returnNb))) await openNotebook(returnNb);
