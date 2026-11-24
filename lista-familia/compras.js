@@ -120,7 +120,7 @@ function renderFotosNota() {
     if (f.b64) img.src = 'data:image/jpeg;base64,' + f.b64;
     else carregarFoto(f.id).then((b64) => { if (b64) img.src = 'data:image/jpeg;base64,' + b64; });
     const ver = el('button', { type: 'button', class: 'mini-foto', ariaLabel: 'Ver foto' }, img);
-    ver.onclick = () => verFoto(img.src);
+    ver.onclick = () => verFotos(fotos.map((x) => x.b64 ? Promise.resolve(x.b64) : carregarFoto(x.id)), fotos.indexOf(f));
     return ver;
   }));
   box.hidden = !fotos.length;
@@ -139,11 +139,37 @@ async function carregarFoto(id) {
   } catch (e) { console.error(e); return null; }
 }
 
-function verFoto(src) {
-  if (!src) return;
+// Mostra as fotos em tela cheia (uma embaixo da outra), rolando até a escolhida
+async function verFotos(promessas, inicio = 0) {
   const d = $('#dlgFoto');
-  $('#dlgFotoImg').src = src;
-  d.showModal();
+  const box = $('#dlgFotoLista');
+  box.replaceChildren(el('p', { class: 'foto-carregando', text: 'Carregando foto…' }));
+  if (!d.open) d.showModal();
+  const imgs = [];
+  for (const p of promessas) {
+    const b64 = await p;
+    const img = el('img', { alt: 'Foto da nota' });
+    if (b64) img.src = 'data:image/jpeg;base64,' + b64;
+    else imgs.push(el('p', { class: 'foto-carregando', text: 'Esta foto ainda não foi baixada. Abra com internet uma vez.' }));
+    if (b64) imgs.push(img);
+  }
+  box.replaceChildren(...imgs);
+  const alvo = box.children[inicio];
+  if (alvo) alvo.scrollIntoView({ block: 'start' });
+}
+
+function verFotosNota(c) {
+  verFotos((c.fotos || []).map(carregarFoto));
+}
+
+// Baixa em segundo plano as fotos ainda não vistas, para abrirem depois sem internet
+let baixando = false;
+async function baixarFotosParaOffline() {
+  if (baixando || !navigator.onLine) return;
+  baixando = true;
+  try {
+    for (const c of compras()) for (const id of c.fotos || []) if (!cacheFotos.has(id)) await carregarFoto(id);
+  } finally { baixando = false; }
 }
 
 async function adicionarFotos(arquivos) {
@@ -232,9 +258,14 @@ function renderNotas() {
     const temFoto = (c.fotos || []).length > 0;
     const info = n ? `${n} itens · ${reais(c.total)}` : '⏳ produtos não lidos';
     const li = el('li', { class: 'nota-linha' + (n ? '' : ' pendente') },
-      el('span', { text: `${temFoto ? '📷 ' : ''}${dataBR(c.data)} · ${c.mercado}` }),
+      el('span', { class: 'n-nome', text: `${dataBR(c.data)} · ${c.mercado}` }),
       el('span', { class: 'n-tot', text: info }), del);
     li.onclick = () => { $('#dlgPrecos').close('cancel'); dialogoNota(c); };
+    if (temFoto) {
+      const foto = el('button', { type: 'button', class: 'btn-foto-nota', text: '📷', ariaLabel: 'Ver foto da nota' });
+      foto.onclick = (e) => { e.stopPropagation(); verFotosNota(c); };
+      li.prepend(foto);
+    }
     return li;
   }));
   const pend = cs.filter((c) => !(c.itens || []).length).length;
@@ -258,6 +289,7 @@ async function dialogoPrecos(busca) {
   d.returnValue = '';
   d.showModal();
   renderPrecos();
+  baixarFotosParaOffline();
   await new Promise((r) => d.addEventListener('close', r, { once: true }));
 }
 
