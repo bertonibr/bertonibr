@@ -66,36 +66,116 @@ function lerNota(texto) {
 }
 
 /* ---------- Lançar nota ---------- */
-async function dialogoNota() {
+/* ---------- Lançar / abrir uma nota ----------
+   A nota pode ser salva só com a foto ("guardada") e os produtos lidos depois:
+   tocando nela em "Notas", abre de novo para colar o texto ou "Ler produtos".
+   As fotos ficam em documentos "foto_…" na coleção "itens" (listaId "__foto__"),
+   carregados só quando a nota é aberta. */
+const NF = { nota: null, fotosNovas: [], fotosIds: [] };
+
+async function dialogoNota(nota) {
   const d = $('#dlgNota');
-  $('#notaData').value = hojeISO();
-  $('#notaMercado').value = '';
-  $('#notaTexto').value = '';
+  NF.nota = nota || null;
+  NF.fotosNovas = [];
+  NF.fotosIds = (nota && nota.fotos) || [];
+  $('#dlgNotaTitulo').textContent = nota ? 'Nota fiscal' : 'Lançar nota fiscal';
+  $('#notaData').value = (nota && nota.data) || hojeISO();
+  $('#notaMercado').value = (nota && nota.mercado !== 'Mercado' && nota.mercado) || '';
+  const fmt = (v) => String(+(+v).toFixed(3)).replace('.', ',');
+  $('#notaTexto').value = nota ? (nota.itens || []).map((i) => `${i.nome}; ${fmt(i.qtd)}; ${fmt(i.unit)}; ${fmt(i.total)}`).join('\n') : '';
   const mercados = [...new Set(compras().map((c) => c.mercado).filter(Boolean))];
   $('#mercadosSug').replaceChildren(...mercados.map((m) => el('option', { value: m })));
-  const previa = () => {
-    const its = lerNota($('#notaTexto').value);
-    const tot = its.reduce((s, i) => s + i.total, 0);
-    const temTexto = $('#notaTexto').value.trim().length > 0;
-    $('#notaPrevia').textContent = its.length
-      ? `${its.length} ${its.length === 1 ? 'produto lido' : 'produtos lidos'} — total ${reais(tot)}`
-      : (temTexto ? 'Não consegui ler os produtos. O formato é: Produto; Quantidade; Valor unitário; Valor total' : 'Cole o texto da nota acima.');
-    $('#notaSalvar').disabled = !its.length;
-  };
-  $('#notaTexto').oninput = previa;
-  previa();
+  $('#notaTexto').oninput = previaNota;
+  previaNota();
+  renderFotosNota();
   d.returnValue = '';
   d.showModal();
   await new Promise((r) => d.addEventListener('close', r, { once: true }));
   if (d.returnValue !== 'ok') return;
+  await salvarNota();
+}
+
+function previaNota() {
+  const its = lerNota($('#notaTexto').value);
+  const tot = its.reduce((s, i) => s + i.total, 0);
+  const temTexto = $('#notaTexto').value.trim().length > 0;
+  const nFotos = NF.fotosIds.length + NF.fotosNovas.length;
+  $('#notaPrevia').textContent = its.length
+    ? `${its.length} ${its.length === 1 ? 'produto lido' : 'produtos lidos'} — total ${reais(tot)}`
+    : (temTexto ? 'Não consegui ler os produtos. O formato é: Produto; Quantidade; Valor unitário; Valor total'
+      : (nFotos ? (NF.fotosNovas.length ? 'Toque em "Guardar nota" para guardar a foto. Os produtos podem ser lidos agora ou depois.' : 'Produtos ainda não lidos. Toque em "Ler produtos da foto" ou cole o texto acima.') : 'Tire a foto da nota ou cole o texto acima.'));
+  $('#notaSalvar').disabled = !its.length && !nFotos;
+  $('#notaSalvar').textContent = its.length ? 'Salvar nota' : 'Guardar nota';
+  $('#btnLerNota').hidden = !nFotos;
+}
+
+function renderFotosNota() {
+  const box = $('#notaFotos');
+  const fotos = [
+    ...NF.fotosIds.map((id) => ({ id })),
+    ...NF.fotosNovas.map((b64, i) => ({ b64, nova: i })),
+  ];
+  box.replaceChildren(...fotos.map((f) => {
+    const img = el('img', { alt: 'Foto da nota', loading: 'lazy' });
+    if (f.b64) img.src = 'data:image/jpeg;base64,' + f.b64;
+    else carregarFoto(f.id).then((b64) => { if (b64) img.src = 'data:image/jpeg;base64,' + b64; });
+    const ver = el('button', { type: 'button', class: 'mini-foto', ariaLabel: 'Ver foto' }, img);
+    ver.onclick = () => verFoto(img.src);
+    return ver;
+  }));
+  box.hidden = !fotos.length;
+  $('#btnFotoNota').textContent = fotos.length ? '📷 Adicionar outra foto' : '📷 Tirar foto da nota';
+  previaNota();
+}
+
+const cacheFotos = new Map();
+async function carregarFoto(id) {
+  if (cacheFotos.has(id)) return cacheFotos.get(id);
+  try {
+    const snap = await db.collection('itens').doc(id).get();
+    const b64 = snap.exists ? snap.data().img : null;
+    if (b64) cacheFotos.set(id, b64);
+    return b64;
+  } catch (e) { console.error(e); return null; }
+}
+
+function verFoto(src) {
+  if (!src) return;
+  const d = $('#dlgFoto');
+  $('#dlgFotoImg').src = src;
+  d.showModal();
+}
+
+async function adicionarFotos(arquivos) {
+  for (const a of arquivos) {
+    try { NF.fotosNovas.push(await reduzirFoto(a)); }
+    catch (e) { console.error(e); toast('Não consegui abrir essa foto.'); }
+  }
+  $('#notaFotoInput').value = '';
+  renderFotosNota();
+}
+
+async function salvarNota() {
   const itens = lerNota($('#notaTexto').value);
-  if (!itens.length) return;
+  if (!itens.length && !NF.fotosIds.length && !NF.fotosNovas.length) return;
   const mercado = $('#notaMercado').value.trim().replace(/\s+/g, ' ') || 'Mercado';
   const data = $('#notaData').value || hojeISO();
   const total = +itens.reduce((s, i) => s + i.total, 0).toFixed(2);
-  const ref = db.collection('listas').doc();
-  gravar(ref.set({ tipo: 'compra', nome: mercado, mercado, data, itens, total, criadoEm: Date.now(), criadoPor: primeiroNome() }));
-  toast(`Nota salva: ${mercado}, ${dataBR(data)} — ${itens.length} produtos, ${reais(total)}`, null, 5000);
+  const ref = NF.nota ? db.collection('listas').doc(NF.nota.id) : db.collection('listas').doc();
+  // fotos novas: um documento por foto (fora da lista que fica sempre carregada)
+  const ids = [...NF.fotosIds];
+  NF.fotosNovas.forEach((img, i) => {
+    const id = `foto_${ref.id}_${Date.now().toString(36)}_${i}`;
+    ids.push(id);
+    cacheFotos.set(id, img);
+    gravar(db.collection('itens').doc(id).set({ listaId: '__foto__', notaId: ref.id, img }));
+  });
+  const dados = { tipo: 'compra', nome: mercado, mercado, data, itens, total, fotos: ids };
+  if (NF.nota) gravar(ref.update(dados));
+  else gravar(ref.set({ ...dados, criadoEm: Date.now(), criadoPor: primeiroNome() }));
+  toast(itens.length
+    ? `Nota salva: ${mercado}, ${dataBR(data)} — ${itens.length} produtos, ${reais(total)}`
+    : `Nota guardada (${ids.length} ${ids.length === 1 ? 'foto' : 'fotos'}). Leia os produtos quando quiser em ⋮ → Preços e notas.`, null, 5000);
 }
 
 async function copiarPedido() {
@@ -147,18 +227,28 @@ function renderNotas() {
   const cs = compras();
   box.replaceChildren(...cs.map((c) => {
     const del = el('button', { type: 'button', class: 'link perigo-link', text: 'Excluir' });
-    del.onclick = () => excluirNota(c);
-    return el('li', {}, el('span', { text: `${dataBR(c.data)} · ${c.mercado}` }),
-      el('span', { class: 'n-tot', text: `${(c.itens || []).length} itens · ${reais(c.total)}` }), del);
+    del.onclick = (e) => { e.stopPropagation(); excluirNota(c); };
+    const n = (c.itens || []).length;
+    const temFoto = (c.fotos || []).length > 0;
+    const info = n ? `${n} itens · ${reais(c.total)}` : '⏳ produtos não lidos';
+    const li = el('li', { class: 'nota-linha' + (n ? '' : ' pendente') },
+      el('span', { text: `${temFoto ? '📷 ' : ''}${dataBR(c.data)} · ${c.mercado}` }),
+      el('span', { class: 'n-tot', text: info }), del);
+    li.onclick = () => { $('#dlgPrecos').close('cancel'); dialogoNota(c); };
+    return li;
   }));
-  $('#tituloNotas').textContent = `Notas lançadas (${cs.length})`;
+  const pend = cs.filter((c) => !(c.itens || []).length).length;
+  $('#tituloNotas').textContent = `Notas (${cs.length})${pend ? ` · ${pend} para ler` : ''}`;
 }
 
 function excluirNota(c) {
   if (!confirm(`Excluir a nota de ${c.mercado} (${dataBR(c.data)})?`)) return;
   const { id, ...dados } = c;
   gravar(db.collection('listas').doc(id).delete());
-  toast('Nota excluída', { texto: 'Desfazer', fn: () => gravar(db.collection('listas').doc(id).set(dados)) }, 10000);
+  let desfeito = false;
+  toast('Nota excluída', { texto: 'Desfazer', fn: () => { desfeito = true; gravar(db.collection('listas').doc(id).set(dados)); } }, 10000);
+  // as fotos só são apagadas depois que o "Desfazer" some
+  setTimeout(() => { if (!desfeito) for (const f of c.fotos || []) gravar(db.collection('itens').doc(f).delete()); }, 11000);
 }
 
 async function dialogoPrecos(busca) {
@@ -231,22 +321,27 @@ Extraia:
 - itens: todos os produtos, na ordem da nota, com nome (como impresso, mas em letras normais em vez de tudo maiúsculo), qtd (quantidade ou peso em kg), unit (valor unitário) e total (valor total do item). Se um item tiver desconto, total já com o desconto.
 Não invente produtos: se algum trecho estiver ilegível, deixe-o de fora.`;
 
+// Reduz a foto para guardar: maior lado 2000 px, JPEG, abaixo de ~700 KB
+// (limite de 1 MB por documento no banco).
 async function reduzirFoto(arquivo) {
   const url = URL.createObjectURL(arquivo);
   try {
     const img = await new Promise((ok, erro) => { const i = new Image(); i.onload = () => ok(i); i.onerror = erro; i.src = url; });
-    const MAX = 1568;   // maior lado recomendado pela API
-    const f = Math.min(1, MAX / Math.max(img.naturalWidth, img.naturalHeight));
-    const c = document.createElement('canvas');
-    c.width = Math.round(img.naturalWidth * f); c.height = Math.round(img.naturalHeight * f);
-    c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
-    return c.toDataURL('image/jpeg', 0.85).split(',')[1];
+    let lado = 2000, q = 0.72, b64 = '';
+    for (let t = 0; t < 6; t++) {
+      const f = Math.min(1, lado / Math.max(img.naturalWidth, img.naturalHeight));
+      const c = document.createElement('canvas');
+      c.width = Math.round(img.naturalWidth * f); c.height = Math.round(img.naturalHeight * f);
+      c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
+      b64 = c.toDataURL('image/jpeg', q).split(',')[1];
+      if (b64.length < 700000) break;
+      q = Math.max(0.45, q - 0.1); lado = Math.round(lado * 0.85);
+    }
+    return b64;
   } finally { URL.revokeObjectURL(url); }
 }
 
-async function lerFotosNota(arquivos) {
-  const fotos = [];
-  for (const a of arquivos) fotos.push(await reduzirFoto(a));
+async function lerFotosNota(fotos) {
   const resp = await fetch('https://api.anthropic.com/v1/messages', {
     method: 'POST',
     headers: {
@@ -282,36 +377,42 @@ async function lerFotosNota(arquivos) {
   return JSON.parse(texto);
 }
 
-async function fotoDaNota(arquivos) {
-  if (!arquivos || !arquivos.length) return;
-  if (!chaveClaude()) { configurarChave(); return; }
-  const btn = $('#btnFotoNota');
+// "Ler produtos": manda as fotos da nota (guardadas ou novas) para o Claude
+async function lerProdutosDaNota() {
+  if (!chaveClaude()) {
+    toast('Para ler pela foto, ligue a leitura automática em ⋮ → Leitura automática de notas. Ou cole o texto da nota no campo abaixo.', null, 7000);
+    return;
+  }
+  const btn = $('#btnLerNota');
   const txtOrig = btn.textContent;
   btn.disabled = true; btn.textContent = '⏳ Lendo a nota…';
   $('#notaPrevia').textContent = 'Lendo a foto com o Claude… pode levar uns 30 segundos.';
   try {
-    const n = await lerFotosNota(arquivos);
-    if (n.mercado) $('#notaMercado').value = n.mercado.trim();
+    const fotos = [];
+    for (const id of NF.fotosIds) { const b = await carregarFoto(id); if (b) fotos.push(b); }
+    fotos.push(...NF.fotosNovas);
+    if (!fotos.length) throw new Error('não encontrei a foto');
+    const n = await lerFotosNota(fotos);
+    if (n.mercado && !$('#notaMercado').value.trim()) $('#notaMercado').value = n.mercado.trim();
     if (/^\d{4}-\d{2}-\d{2}$/.test(n.data || '')) $('#notaData').value = n.data;
     const fmt = (v) => String(+(+v).toFixed(3)).replace('.', ',');
     $('#notaTexto').value = (n.itens || []).map((i) => `${i.nome}; ${fmt(i.qtd)}; ${fmt(i.unit)}; ${fmt(i.total)}`).join('\n');
-    $('#notaTexto').dispatchEvent(new Event('input'));
+    previaNota();
     const soma = (n.itens || []).reduce((s, i) => s + (+i.total || 0), 0);
     if (n.total_nota) {
       const dif = Math.abs(soma - n.total_nota);
       $('#notaPrevia').textContent += dif < 0.05
-        ? ` · bate com o total da nota ✓`
+        ? ' · bate com o total da nota ✓'
         : ` · ⚠ total impresso na nota: ${reais(n.total_nota)} (diferença de ${reais(dif)} — confira)`;
     }
   } catch (e) {
     console.error(e);
-    if (e.status === 401) { toast('A chave do Claude não funcionou. Confira em ⋮ → Leitura automática de notas.', null, 6000); }
+    if (e.status === 401) toast('A chave do Claude não funcionou. Confira em ⋮ → Leitura automática de notas.', null, 6000);
     else if (e.status === 429 || e.status === 529) toast('O Claude está ocupado agora. Tente de novo em instantes.', null, 5000);
     else toast('Não consegui ler a foto: ' + (e.message || e), null, 6000);
-    $('#notaTexto').dispatchEvent(new Event('input'));
+    previaNota();
   } finally {
     btn.disabled = false; btn.textContent = txtOrig;
-    $('#notaFotoInput').value = '';
   }
 }
 

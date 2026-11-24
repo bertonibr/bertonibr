@@ -278,3 +278,13 @@ dialog.grande .janela { max-height: calc(100dvh - 40px); }
 .lembrar input { width: 18px; height: 18px; accent-color: var(--cor); }
 .foto-nota { width: 100%; min-height: 50px; font-size: 17px; }
 .foto-nota:disabled { opacity: .7; }
+
+.nota-fotos { display: flex; gap: 8px; overflow-x: auto; padding-bottom: 2px; }
+.mini-foto { flex: none; width: 72px; height: 96px; padding: 0; border: 1.5px solid var(--linha); border-radius: 10px; overflow: hidden; background: var(--fundo); }
+.mini-foto img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.nota-linha { cursor: pointer; }
+.nota-linha.pendente .n-tot { color: #b7791f; }
+dialog.foto-cheia { width: 100vw; max-width: 100vw; height: 100dvh; max-height: 100dvh; margin: 0; border-radius: 0; background: #111; padding: 0; }
+dialog.foto-cheia form { width: 100%; height: 100%; overflow: auto; }
+dialog.foto-cheia img { width: 100%; display: block; }
+.fechar-foto { position: fixed; top: calc(10px + env(safe-area-inset-top)); right: 10px; z-index: 2; background: rgba(255,255,255,.9); border-radius: 50%; color: #111; }

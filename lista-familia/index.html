@@ -178,12 +178,14 @@
 <dialog id="dlgNota" class="grande">
   <form method="dialog" class="janela">
     <div class="obs-topo">
-      <h2>Lançar nota fiscal</h2>
+      <h2 id="dlgNotaTitulo">Lançar nota fiscal</h2>
       <button value="cancel" formnovalidate class="icone fechar" aria-label="Fechar">✕</button>
     </div>
-    <button id="btnFotoNota" type="button" class="btn destaque foto-nota">📷 Foto da nota (preenche sozinho)</button>
+    <button id="btnFotoNota" type="button" class="btn destaque foto-nota">📷 Tirar foto da nota</button>
     <input id="notaFotoInput" type="file" accept="image/*" multiple hidden>
-    <p class="nota">Nota comprida? Tire 2 ou 3 fotos e escolha todas juntas.
+    <div id="notaFotos" class="nota-fotos" hidden></div>
+    <button id="btnLerNota" type="button" class="btn foto-nota" hidden>🤖 Ler produtos da foto</button>
+    <p class="nota">Nota comprida? Tire 2 ou 3 fotos. Dá para só guardar a foto e ler os produtos depois.
       Ou cole o texto abaixo (<button id="btnCopiarPedido" type="button" class="link">copiar pedido para o Claude</button>).</p>
     <div class="nota-campos">
       <label>Data <input id="notaData" type="date"></label>
@@ -200,10 +202,17 @@
   </form>
 </dialog>
 
+<dialog id="dlgFoto" class="foto-cheia">
+  <form method="dialog">
+    <button value="cancel" class="icone fechar fechar-foto" aria-label="Fechar">✕</button>
+    <img id="dlgFotoImg" alt="Foto da nota">
+  </form>
+</dialog>
+
 <dialog id="dlgPrecos" class="grande">
   <form method="dialog" class="janela">
     <div class="obs-topo">
-      <h2>Histórico de preços</h2>
+      <h2>Preços e notas</h2>
       <button value="cancel" formnovalidate class="icone fechar" aria-label="Fechar">✕</button>
     </div>
     <input id="precoBusca" type="search" placeholder="Buscar produto (ex.: leite)" autocomplete="off">

@@ -208,7 +208,8 @@ function escutar() {
     seguro(render);
     seguro(() => { if ($('#dlgPrecos') && $('#dlgPrecos').open) renderPrecos(); });
   }, erroLeitura));
-  S.unsub.push(db.collection('itens').onSnapshot(opt, (snap) => {
+  // As fotos das notas (listaId "__foto__") ficam de fora: são grandes e só carregam quando a nota é aberta
+  S.unsub.push(db.collection('itens').where('listaId', '!=', '__foto__').onSnapshot(opt, (snap) => {
     S.itens = new Map(snap.docs.map((d) => [d.id, { id: d.id, ...d.data() }]));
     S.ver++;
     S.pend.itens = snap.metadata.hasPendingWrites;
@@ -706,8 +707,8 @@ async function menu(titulo, opcoes, info) {
 
 function menuInicio() {
   menu('Lista Família', [
-    { texto: '🧾  Lançar nota fiscal', fn: dialogoNota },
-    { texto: '📈  Histórico de preços', fn: () => dialogoPrecos() },
+    { texto: '🧾  Lançar nota fiscal', fn: () => dialogoNota() },
+    { texto: '📈  Preços e notas', fn: () => dialogoPrecos() },
     { texto: '🔑  Leitura automática de notas', fn: configurarChave },
     { texto: 'Sair da conta', fn: sair },
   ], S.user ? `Conectado como ${S.user.email}` : '');
@@ -719,7 +720,7 @@ function menuLista() {
   menu(l.nome, [
     ...(PADRAO[l.tipo] ? [{ texto: '🛒  Escolher da lista padrão', fn: dialogoPadrao }] : []),
     { texto: '📋  Adicionar vários itens (colar lista)', fn: dialogoColar },
-    ...(l.tipo === 'mercado' ? [{ texto: '🧾  Lançar nota fiscal', fn: dialogoNota }, { texto: '📈  Histórico de preços', fn: () => dialogoPrecos() }] : []),
+    ...(l.tipo === 'mercado' ? [{ texto: '🧾  Lançar nota fiscal', fn: () => dialogoNota() }, { texto: '📈  Preços e notas', fn: () => dialogoPrecos() }] : []),
     { texto: '✏️  Renomear / mudar tipo', fn: () => dialogoLista(l) },
     { texto: '↗️  Compartilhar como texto', fn: () => compartilhar(l) },
     { texto: '↺  ' + rot(l).desmarcar, fn: () => desmarcarTudo(l) },
@@ -1000,10 +1001,11 @@ function ligarEventos() {
     });
   }
   $('#btnPadrao').onclick = dialogoPadrao;
-  $('#btnNota').onclick = dialogoNota;
+  $('#btnNota').onclick = () => dialogoNota();
   $('#btnCopiarPedido').onclick = copiarPedido;
-  $('#btnFotoNota').onclick = () => { if (!chaveClaude()) configurarChave(); else $('#notaFotoInput').click(); };
-  $('#notaFotoInput').onchange = (e) => fotoDaNota([...e.target.files]);
+  $('#btnFotoNota').onclick = () => $('#notaFotoInput').click();
+  $('#notaFotoInput').onchange = (e) => adicionarFotos([...e.target.files]);
+  $('#btnLerNota').onclick = lerProdutosDaNota;
   $('#btnAbrirPrecos').onclick = () => { $('#dlgNota').close('cancel'); dialogoPrecos(); };
   $('#dlgPadraoTodos').onclick = () => {
     const todos = [];
