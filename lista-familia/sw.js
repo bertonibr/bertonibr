@@ -1,7 +1,7 @@
 /* Service worker: o app abre mesmo sem internet.
    Cada versão guarda TODOS os arquivos juntos (cache-first) e só troca de
    versão inteira, para nunca misturar arquivos antigos e novos. */
-const CACHE = 'lista-familia-v20';
+const CACHE = 'lista-familia-v21';
 const SHELL = [
   './', './index.html', './app.js', './compras.js', './config.js', './padrao.js', './style.css', './manifest.webmanifest',
   './icon-192.png', './icon-512.png', './apple-touch-icon.png',

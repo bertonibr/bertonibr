@@ -820,14 +820,6 @@ function arrastarParaDetalhe(li, it) {
     if (e.button || e.target.closest('.qtd, .edit')) return;
     x0 = e.clientX; y0 = e.clientY; dx = 0; ativo = true; horizontal = false; id = e.pointerId; disparou = false;
     S.arrastando = true;               // segura atualizações da tela enquanto o dedo está no item
-    li.classList.add('segurando');
-    timerSegurar = setTimeout(() => {
-      li.classList.remove('segurando');
-      disparou = true; ativo = false; li._arrastou = true;
-      soltar();
-      if (navigator.vibrate) navigator.vibrate(30);
-      editarItem(it);
-    }, SEGURAR_MS);
   });
   li.addEventListener('contextmenu', (e) => e.preventDefault());
   li.addEventListener('pointermove', (e) => {
