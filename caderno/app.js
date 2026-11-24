@@ -5,6 +5,7 @@
    Coordenadas das páginas são lógicas: largura = 1000.
    ========================================================= */
 
+const APP_VERSION = 21;
 const PAGE_W = 1000;
 const A4_H = 1414;
 const PEN_COLORS = ['#1a1a1a', '#1e4fd8', '#d62828', '#2a9d4b', '#e67700', '#7b2cbf'];
@@ -82,6 +83,7 @@ const S = {
 let toastTimer;
 function toast(msg, ms = 2200) {
   const t = $('#toast');
+  t.onclick = null;
   t.textContent = msg; t.hidden = false;
   clearTimeout(toastTimer);
   if (ms) toastTimer = setTimeout(() => (t.hidden = true), ms);
@@ -124,6 +126,7 @@ function loadScript(src) {
    BIBLIOTECA
    ========================================================= */
 async function showLibrary() {
+  savePos();
   await flushSave();
   closeEditor();
   $('#editor').hidden = true;
@@ -189,7 +192,7 @@ function newPage(template) {
 
 // ids de todas as imagens usadas por uma página (fundo + fotos)
 function pageImgIds(p) {
-  return [p.bgId, ...(p.images || []).map((o) => o.imgId)].filter(Boolean);
+  return [p.bgId, p.pdfSrc, ...(p.images || []).map((o) => o.imgId)].filter(Boolean);
 }
 
 async function createNotebook(name, color, template, pages) {
@@ -244,7 +247,11 @@ async function fileToPages(file) {
     toast('Carregando PDF…', 0);
     await loadScript(LIBS.pdfjs);
     pdfjsLib.GlobalWorkerOptions.workerSrc = LIBS.pdfjsWorker;
-    const pdf = await pdfjsLib.getDocument({ data: await file.arrayBuffer() }).promise;
+    const buf = await file.arrayBuffer();
+    // guarda o arquivo original para desenhar o texto nítido com zoom
+    const pdfSrc = uid();
+    await DB.put('images', new Blob([buf.slice(0)], { type: 'application/pdf' }), pdfSrc);
+    const pdf = await pdfjsLib.getDocument({ data: new Uint8Array(buf) }).promise;
     for (let i = 1; i <= pdf.numPages; i++) {
       toast(`Importando página ${i} de ${pdf.numPages}…`, 0);
       const pg = await pdf.getPage(i);
@@ -259,7 +266,7 @@ async function fileToPages(file) {
       const bgId = uid();
       await DB.put('images', await canvasToBlob(c), bgId);
       c.width = c.height = 0;
-      pages.push({ id: uid(), h: Math.round(PAGE_W * vp1.height / vp1.width), template: 'blank', strokes: [], bgId });
+      pages.push({ id: uid(), h: Math.round(PAGE_W * vp1.height / vp1.width), template: 'blank', strokes: [], bgId, pdfSrc, pdfPage: i });
     }
   } else if (file.type.startsWith('image/')) {
     toast('Importando imagem…', 0);
@@ -289,7 +296,25 @@ function blobToImage(blob) {
   });
 }
 
-const bgCache = new Map(); // bgId -> Promise<HTMLImageElement>
+/* Fundos de página (PDF/imagem importados): cache pequeno que libera memória.
+   Num livro de centenas de páginas, guardar todas as imagens decodificadas
+   esgota a memória do iPad e o Safari passa a mostrar páginas em branco. */
+const pageBgCache = new Map(); // id -> { p: Promise<HTMLImageElement> }
+const PAGE_BG_MAX = 6;
+function getPageBg(id) {
+  let e = pageBgCache.get(id);
+  if (e) { pageBgCache.delete(id); pageBgCache.set(id, e); return e.p; } // mais recente
+  e = { p: DB.get('images', id).then((b) => (b ? blobToImage(b) : null)).catch(() => null) };
+  pageBgCache.set(id, e);
+  while (pageBgCache.size > PAGE_BG_MAX) {
+    const [k, old] = pageBgCache.entries().next().value;
+    pageBgCache.delete(k);
+    old.p.then((img) => { if (img) { URL.revokeObjectURL(img.src); img.removeAttribute('src'); } });
+  }
+  return e.p;
+}
+
+const bgCache = new Map(); // fotos coladas: bgId -> Promise<HTMLImageElement>
 function getBg(bgId) {
   if (!bgCache.has(bgId)) {
     bgCache.set(bgId, DB.get('images', bgId).then((b) => (b ? blobToImage(b) : null)).catch(() => null));
@@ -315,11 +340,41 @@ async function openNotebook(id) {
   $('#library').hidden = true;
   $('#editor').hidden = false;
   $('#nbTitle').textContent = nb.name;
+  // volta para onde a pessoa parou (página, posição e zoom)
+  const pos = loadPos(id);
+  if (pos && pos.zoom) S.zoom = clamp(pos.zoom, 0.5, maxZoom());
   buildPages();
   scroller.scrollTo(0, 0);
+  if (pos) restorePos(pos);
+  try { localStorage.setItem('caderno.lastNb', id); } catch (_) {}
   updateUndoButtons();
   updatePageInd();
 }
+
+/* ---------- Lembrar onde parou ---------- */
+const posKey = (id) => 'caderno.pos.' + id;
+function loadPos(id) { try { return JSON.parse(localStorage.getItem(posKey(id)) || 'null'); } catch (_) { return null; } }
+function savePos() {
+  if (!S.nb || !S.pages.length) return;
+  const st = scroller.scrollTop;
+  // página que está no topo da tela e quanto dela já passou
+  let page = S.pages[0], frac = 0;
+  for (const p of S.pages) {
+    const v = S.views.get(p.id);
+    if (!v) continue;
+    if (v.el.offsetTop + v.el.offsetHeight > st) { page = p; frac = (st - v.el.offsetTop) / v.el.offsetHeight; break; }
+  }
+  const xfrac = scroller.scrollWidth > scroller.clientWidth ? scroller.scrollLeft / scroller.scrollWidth : 0;
+  try { localStorage.setItem(posKey(S.nb.id), JSON.stringify({ page: page.id, frac, xfrac, zoom: S.zoom })); } catch (_) {}
+}
+function restorePos(pos) {
+  const v = S.views.get(pos.page);
+  if (!v) return;
+  scroller.scrollTop = v.el.offsetTop + (pos.frac || 0) * v.el.offsetHeight;
+  if (pos.xfrac) scroller.scrollLeft = pos.xfrac * scroller.scrollWidth;
+}
+let posTimer = 0;
+function savePosSoon() { clearTimeout(posTimer); posTimer = setTimeout(savePos, 400); }
 
 /* Recarrega o caderno aberto (após receber versão do Drive), mantendo a posição */
 async function reloadOpenNotebook() {
@@ -355,7 +410,7 @@ const io = new IntersectionObserver((entries) => {
     if (en.isIntersecting) attach(v); else detach(v);
   }
   updatePageInd();
-}, { root: scroller, rootMargin: '120% 0px' });
+}, { root: scroller, rootMargin: '25% 0px' }); // só as páginas na tela (e quase na tela) ficam abertas: menos memória
 
 function buildPages() {
   for (const v of S.views.values()) { io.unobserve(v.el); detach(v); }
@@ -391,7 +446,7 @@ function layerWindow(v, budget) {
   const want = Math.min(window.devicePixelRatio || 1, 2);
   if (cw * ch * want * want <= budget) return { x0: 0, y0: 0, x1: PAGE_W, y1: v.page.h, dpr: want, partial: false };
   const r = v.el.getBoundingClientRect(), sr = scroller.getBoundingClientRect();
-  const mx = sr.width * 0.25, my = sr.height * 0.35;
+  const mx = sr.width * 0.15, my = sr.height * 0.25;
   let left = Math.max(sr.left - mx, r.left), right = Math.min(sr.right + mx, r.right);
   let top = Math.max(sr.top - my, r.top), bottom = Math.min(sr.bottom + my, r.bottom);
   if (right - left < 1 || bottom - top < 1) { left = r.left; right = r.left + 1; top = r.top; bottom = r.top + 1; }
@@ -456,16 +511,39 @@ function detach(v) {
   if (!v.attached) return;
   if (sel && sel.v === v) deselect();
   if (ssel && ssel.v === v) deselectStrokes();
+  if (v._pdfTask) { try { v._pdfTask.cancel(); } catch (_) {} v._pdfTask = null; }
   for (const c of [v.bg, v.ink]) { c.width = c.height = 0; c.remove(); }
   v.imgs.remove();
   v.bg = v.ink = v.imgs = null;
   v.attached = false;
 }
 
+// fator de memória: diminui sozinho se o iPad recusar canvases grandes
+let budgetScale = 1;
+function canvasWorks(c) {
+  try {
+    const ctx = c.getContext('2d');
+    if (!ctx) return false;
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.fillStyle = '#fff';
+    ctx.fillRect(0, 0, 1, 1);
+    return ctx.getImageData(0, 0, 1, 1).data[3] === 255;
+  } catch (_) { return false; }
+}
+
 function renderView(v) {
   if (!v.attached) return;
-  applyWindow(v.ink, v, layerWindow(v, 10e6));
-  applyWindow(v.bg, v, layerWindow(v, 4e6));
+  // papel e escrita usam a MESMA janela: ao rolar, os dois são redesenhados juntos
+  const w = layerWindow(v, 4e6 * budgetScale);
+  applyWindow(v.ink, v, w);
+  applyWindow(v.bg, v, w);
+  // o iPad recusou a memória do canvas? (fica transparente/branco) -> reduz e tenta de novo
+  if (!canvasWorks(v.bg) && budgetScale > 0.2) {
+    budgetScale *= 0.6;
+    console.warn('canvas sem memória; reduzindo resolução para', budgetScale.toFixed(2));
+    for (const x of S.views.values()) if (x.attached && x !== v) applyWindow(x.ink, x, layerWindow(x, 4e6 * budgetScale));
+    return renderView(v);
+  }
   renderBg(v);
   renderInk(v);
   if (ssel && ssel.v === v) renderFloat();
@@ -710,14 +788,68 @@ function renderBg(v) {
   ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, c.width, c.height);
   setLogical(ctx, c);
   drawTemplate(ctx, v.page);
-  if (v.page.bgId) {
-    const id = v.page.bgId, win = c._win;
-    getBg(id).then((img) => {
-      if (!img || v.bg !== c || v.page.bgId !== id || c._win !== win) return;
-      setLogical(ctx, c);
-      ctx.drawImage(img, 0, 0, PAGE_W, v.page.h);
-    });
+  // PDF importado com o arquivo original: desenha o texto nítido no tamanho do zoom
+  // (sem a imagem de baixa resolução, para economizar memória)
+  if (v.page.pdfSrc) { renderPdfLayer(v, c, c._win); return; }
+  if (v.page.bgId) drawLowRes(v, c, c._win);
+}
+
+function drawLowRes(v, c, win) {
+  const id = v.page.bgId;
+  if (!id) return;
+  getPageBg(id).then((img) => {
+    if (!img || v.bg !== c || v.page.bgId !== id || c._win !== win || c._vector === win) return;
+    const ctx = c.getContext('2d');
+    setLogical(ctx, c);
+    ctx.drawImage(img, 0, 0, PAGE_W, v.page.h);
+  });
+}
+
+/* ---------- PDF vetorial (texto nítido em qualquer zoom) ---------- */
+const pdfDocs = new Map(); // pdfSrc -> Promise<PDFDocumentProxy>
+function getPdf(id) {
+  if (!pdfDocs.has(id)) {
+    pdfDocs.set(id, (async () => {
+      const blob = await DB.get('images', id);
+      if (!blob) return null;
+      await loadScript(LIBS.pdfjs);
+      pdfjsLib.GlobalWorkerOptions.workerSrc = LIBS.pdfjsWorker;
+      return pdfjsLib.getDocument({ data: new Uint8Array(await blob.arrayBuffer()) }).promise;
+    })().catch(() => null));
   }
+  return pdfDocs.get(id);
+}
+
+let pdfRenders = 0;
+async function renderPdfLayer(v, c, win) {
+  // cancela o desenho anterior desta página e espera ele parar de verdade
+  const prev = v._pdfTask;
+  if (prev) { try { prev.cancel(); } catch (_) {} try { await prev.promise; } catch (_) {} }
+  const page = v.page;
+  const stale = () => v.bg !== c || c._win !== win;
+  if (stale()) return;
+  const doc = await getPdf(page.pdfSrc);
+  if (stale()) return;
+  if (!doc) { drawLowRes(v, c, win); return; }
+  let pg;
+  try { pg = await doc.getPage(page.pdfPage); } catch (_) { drawLowRes(v, c, win); return; }
+  if (stale()) return;
+  const k = c._k;
+  const vp = pg.getViewport({ scale: k * PAGE_W / pg.getViewport({ scale: 1 }).width });
+  const ctx = c.getContext('2d');
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, c.width, c.height);
+  const task = pg.render({ canvasContext: ctx, viewport: vp, transform: [1, 0, 0, 1, -win.x0 * k, -win.y0 * k] });
+  v._pdfTask = task;
+  let ok = true;
+  try { await task.promise; } catch (_) { ok = false; }
+  if (v._pdfTask === task) v._pdfTask = null;
+  try { pg.cleanup(); } catch (_) {}
+  // de tempos em tempos libera a memória interna do leitor de PDF
+  if (++pdfRenders % 25 === 0 && ![...S.views.values()].some((x) => x._pdfTask)) { try { Promise.resolve(doc.cleanup()).catch(() => {}); } catch (_) {} }
+  if (stale()) return;
+  if (ok) c._vector = win;
+  else if (!v._pdfTask) drawLowRes(v, c, win); // falhou (não foi só cancelado por outro desenho)
 }
 
 function drawTemplate(ctx, page) {
@@ -965,7 +1097,7 @@ function onLassoMove(e) {
 function onLassoEnd(e) {
   if (!lasso || e.pointerId !== lasso.id) return false;
   const l = lasso; lasso = null;
-  live.remove();
+  releaseLive();
   const v = l.v;
   if (l.len < 15) {
     // toque: seleciona a foto tocada (ou limpa a seleção)
@@ -1081,6 +1213,8 @@ function drawStroke(ctx, s) {
 /* ---------------- Desenho (Pointer Events) ---------------- */
 let cur = null;          // gesto de desenho/apagar em andamento
 const live = document.createElement('canvas');
+// tira o canvas temporário da página e libera a memória dele (iPad)
+function releaseLive() { live.remove(); live.width = live.height = 0; }
 let liveRaf = 0;
 let fingerCount = 0;     // dedos na tela (touch)
 
@@ -1166,7 +1300,7 @@ function onPointerUp(e) {
   if (onGestureEnd(e) || onSGestureEnd(e) || onLassoEnd(e)) return;
   if (!cur || e.pointerId !== cur.id) return;
   const c = cur; cur = null;
-  live.remove();
+  releaseLive();
   if (c.erase) {
     if (c.changed) commitChange(c.v.page, c.before);
     return;
@@ -1183,7 +1317,7 @@ function onPointerUp(e) {
 function cancelStroke() {
   if (!cur) return;
   if (cur.erase && cur.changed) { cur.v.page.strokes = cur.before; renderInk(cur.v); }
-  cur = null; live.remove();
+  cur = null; releaseLive();
 }
 
 function scheduleLive() {
@@ -1287,8 +1421,8 @@ async function flushSave() {
   await DB.put('notebooks', S.nb);
   Sync.schedule();
 }
-document.addEventListener('visibilitychange', () => { if (document.hidden) flushSave(); });
-window.addEventListener('pagehide', () => flushSave());
+document.addEventListener('visibilitychange', () => { if (document.hidden) { savePos(); flushSave(); } });
+window.addEventListener('pagehide', () => { savePos(); flushSave(); });
 
 /* ---------------- Páginas ---------------- */
 function currentIndex() {
@@ -1326,7 +1460,8 @@ async function deleteCurrentPage() {
   S.redo = S.redo.filter((a) => a.pageId !== p.id);
   updateUndoButtons();
   await DB.del('pages', p.id);
-  for (const id of pageImgIds(p)) await DB.del('images', id);
+  const still = new Set(S.pages.flatMap(pageImgIds));
+  for (const id of pageImgIds(p)) if (!still.has(id)) await DB.del('images', id);
   buildPages();
   markDirty();
   updatePageInd();
@@ -1346,20 +1481,34 @@ function setTemplate(t, all) {
 }
 
 /* ---------------- Zoom ---------------- */
+/* Zoom ancorado num ponto da PÁGINA: o ponto que estava sob os dedos (fx,fy)
+   termina exatamente em (tx,ty). (Antes o cálculo usava o conteúdo inteiro,
+   e os espaços entre páginas — que não crescem com o zoom — faziam a tela
+   "pular" depois de soltar os dedos.) Coordenadas relativas ao scroller. */
 function setZoom(z, fx, fy, tx, ty) {
   z = clamp(z, 0.5, maxZoom());
-  const old = S.zoom;
-  if (Math.abs(z - old) < 0.001) return;
+  if (Math.abs(z - S.zoom) < 0.001) return;
   if (fx === undefined) { fx = tx = scroller.clientWidth / 2; fy = ty = scroller.clientHeight / 2; }
-  const cx = scroller.scrollLeft + fx - pagesEl.offsetLeft;
-  const cy = scroller.scrollTop + fy - pagesEl.offsetTop;
-  const oldW = pageCssW();
+  const sr = scroller.getBoundingClientRect();
+  const px = sr.left + fx, py = sr.top + fy;
+  // página sob o ponto (ou a mais próxima) e a posição dele dentro dela (0..1)
+  let anchor = null, best = Infinity;
+  for (const v of S.views.values()) {
+    const r = v.el.getBoundingClientRect();
+    const d = py < r.top ? r.top - py : py > r.bottom ? py - r.bottom : 0;
+    if (d < best) { best = d; anchor = { v, u: (px - r.left) / r.width, w: (py - r.top) / r.height }; }
+    if (d === 0) break;
+  }
   S.zoom = z;
-  const ratio = pageCssW() / oldW;
   for (const v of S.views.values()) sizeView(v);
+  if (anchor) {
+    const r = anchor.v.el.getBoundingClientRect();
+    scroller.scrollLeft += r.left + anchor.u * r.width - (sr.left + tx);
+    scroller.scrollTop += r.top + anchor.w * r.height - (sr.top + ty);
+  }
+  // redesenha já na posição final
   for (const v of S.views.values()) if (v.attached) renderView(v);
-  scroller.scrollLeft = cx * ratio + pagesEl.offsetLeft - tx;
-  scroller.scrollTop = cy * ratio + pagesEl.offsetTop - ty;
+  savePosSoon();
 }
 
 /* Pinça com dois dedos + bloqueio de rolagem pela Pencil */
@@ -1436,7 +1585,7 @@ async function exportPdf() {
       ctx.setTransform(k, 0, 0, k, 0, 0);
       drawTemplate(ctx, p);
       if (p.bgId) {
-        const img = await getBg(p.bgId);
+        const img = await getPageBg(p.bgId);
         if (img) { ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.drawImage(img, 0, 0, W, H); ctx.setTransform(k, 0, 0, k, 0, 0); }
       }
       for (const o of p.images || []) {
@@ -1556,7 +1705,7 @@ function bindUI() {
     } catch (err) { console.error(err); toast('Erro ao importar: ' + err.message, 4000); }
   };
 
-  $('#btnBack').onclick = showLibrary;
+  $('#btnBack').onclick = () => { try { localStorage.removeItem('caderno.lastNb'); } catch (_) {} showLibrary(); };
   document.querySelectorAll('.sync-btn').forEach((b) => (b.onclick = (e) => Sync.menu(e.currentTarget)));
   $('#nbTitle').onclick = () => {
     const n = prompt('Nome do caderno', S.nb.name);
@@ -1585,6 +1734,7 @@ function bindUI() {
     { label: 'Inserir foto na página', action: () => $('#filePhoto').click() },
     { label: 'Inserir PDF ou imagem como páginas', action: () => $('#fileInsert').click() },
     { label: 'Exportar PDF', action: exportPdf },
+    { info: `Versão do app: ${APP_VERSION}` },
     { label: 'Folha de treino (cálculo)', action: () => MathInk.sheet() },
     '-',
     { label: 'Limpar página', action: () => {
@@ -1603,10 +1753,10 @@ function bindUI() {
   window.addEventListener('pointerup', onPointerUp);
   window.addEventListener('pointercancel', (e) => {
     if (onGestureEnd(e) || onSGestureEnd(e)) return;
-    if (lasso && e.pointerId === lasso.id) { lasso = null; live.remove(); return; }
+    if (lasso && e.pointerId === lasso.id) { lasso = null; releaseLive(); return; }
     if (cur && e.pointerId === cur.id) cancelStroke();
   });
-  scroller.addEventListener('scroll', () => requestAnimationFrame(updatePageInd), { passive: true });
+  scroller.addEventListener('scroll', () => { requestAnimationFrame(updatePageInd); savePosSoon(); }, { passive: true });
   // com zoom alto só a parte visível fica desenhada: redesenha ao rolar
   let winRaf = 0;
   const refreshWindows = () => {
@@ -1662,10 +1812,27 @@ function bindUI() {
     navigator.serviceWorker.addEventListener('controllerchange', () => {
       if (reloading) return;
       const go = () => { if (!reloading) { reloading = true; location.reload(); } };
-      if (!S.nb) go(); else window.addEventListener('caderno:library', go, { once: true });
+      if (!S.nb) { go(); return; }
+      // dentro de um caderno: avisa e deixa a pessoa escolher a hora
+      window.addEventListener('caderno:library', go, { once: true });
+      const t = $('#toast');
+      t.innerHTML = 'Nova versão do app disponível — <b>toque aqui para atualizar</b>';
+      t.hidden = false;
+      clearTimeout(toastTimer);
+      t.onclick = async () => { t.onclick = null; await flushSave(); go(); };
     });
+    // procura atualização ao abrir e ao voltar para o app
+    navigator.serviceWorker.ready.then((reg) => {
+      reg.update().catch(() => {});
+      document.addEventListener('visibilitychange', () => { if (!document.hidden) reg.update().catch(() => {}); });
+    }).catch(() => {});
   }
   if (Sync.start()) return; // renovando acesso ao Google
-  if (returnNb && (await DB.get('notebooks', returnNb))) await openNotebook(returnNb);
+  // reabre o caderno que estava aberto quando o app foi fechado
+  let last = null;
+  try { last = localStorage.getItem('caderno.lastNb'); } catch (_) {}
+  const okNb = async (id) => { const n = id && (await DB.get('notebooks', id)); return n && !n.deleted; };
+  if (await okNb(returnNb)) await openNotebook(returnNb);
+  else if (await okNb(last)) await openNotebook(last);
   else await showLibrary();
 })();
