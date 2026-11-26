@@ -5,7 +5,7 @@
    Coordenadas das páginas são lógicas: largura = 1000.
    ========================================================= */
 
-const APP_VERSION = 21;
+const APP_VERSION = 22;
 const PAGE_W = 1000;
 const A4_H = 1414;
 const PEN_COLORS = ['#1a1a1a', '#1e4fd8', '#d62828', '#2a9d4b', '#e67700', '#7b2cbf'];
@@ -1168,42 +1168,71 @@ function pasteStrokes() {
   selectStrokes(v, copies);
 }
 
+/* Curva suave (Catmull-Rom centrípeta) passando exatamente pelos pontos da
+   caneta, com mais subdivisões quanto maior o zoom. Assim a escrita fica lisa
+   em qualquer ampliação (antes, com escrita rápida, apareciam "quinas"). */
+function smoothPts(p, scale) {
+  const n = p.length / 3;
+  const xs = [p[0]], ys = [p[1]], ps = [p[2]];
+  if (n < 3) { for (let i = 1; i < n; i++) { xs.push(p[i * 3]); ys.push(p[i * 3 + 1]); ps.push(p[i * 3 + 2]); } return { xs, ys, ps }; }
+  const P = (i) => { i = Math.max(0, Math.min(n - 1, i)); return [p[i * 3], p[i * 3 + 1]]; };
+  const dist = (a, b) => Math.max(1e-4, Math.sqrt(Math.hypot(b[0] - a[0], b[1] - a[1]))); // centrípeta (alfa 0,5)
+  for (let i = 0; i < n - 1; i++) {
+    const p0 = i === 0 ? P(0) : P(i - 1), p1 = P(i), p2 = P(i + 1), p3 = i + 2 < n ? P(i + 2) : P(n - 1);
+    const segPx = Math.hypot(p2[0] - p1[0], p2[1] - p1[1]) * scale;
+    const k = Math.max(1, Math.min(24, Math.ceil(segPx / 3))); // ~1 ponto a cada 3 px na tela
+    const t0 = 0, t1 = t0 + dist(p0, p1), t2 = t1 + dist(p1, p2), t3 = t2 + dist(p2, p3);
+    for (let j = 1; j <= k; j++) {
+      const t = t1 + (t2 - t1) * j / k;
+      const lerp = (a, b, ta, tb) => (ta === tb ? a : a + (b - a) * (t - ta) / (tb - ta));
+      const pt = (c) => {
+        const A1 = lerp(p0[c], p1[c], t0, t1), A2 = lerp(p1[c], p2[c], t1, t2), A3 = lerp(p2[c], p3[c], t2, t3);
+        const B1 = lerp(A1, A2, t0, t2), B2 = lerp(A2, A3, t1, t3);
+        return lerp(B1, B2, t1, t2);
+      };
+      xs.push(pt(0)); ys.push(pt(1));
+      ps.push(p[i * 3 + 2] + (p[i * 3 + 5] - p[i * 3 + 2]) * j / k);
+    }
+  }
+  return { xs, ys, ps };
+}
+
 /* Desenha um traço. s.pts = [x, y, pressão, x, y, pressão, ...] */
 function drawStroke(ctx, s) {
   const p = s.pts, n = p.length / 3;
   if (!n) return;
+  const m = ctx.getTransform();
+  const scale = Math.hypot(m.a, m.b) || 1; // pixels da tela por unidade da página
   ctx.save();
   ctx.lineCap = 'round'; ctx.lineJoin = 'round';
   ctx.strokeStyle = ctx.fillStyle = s.color;
+  const { xs, ys, ps } = smoothPts(p, scale);
+  const N = xs.length;
   if (s.tool === 'highlighter') {
     ctx.globalAlpha = 0.35;
     ctx.lineWidth = s.size;
     ctx.beginPath();
-    ctx.moveTo(p[0], p[1]);
-    if (n === 1) ctx.lineTo(p[0] + 0.1, p[1]);
-    for (let i = 1; i < n - 1; i++) {
-      const mx = (p[i * 3] + p[i * 3 + 3]) / 2, my = (p[i * 3 + 1] + p[i * 3 + 4]) / 2;
-      ctx.quadraticCurveTo(p[i * 3], p[i * 3 + 1], mx, my);
-    }
-    if (n > 1) ctx.lineTo(p[(n - 1) * 3], p[(n - 1) * 3 + 1]);
+    ctx.moveTo(xs[0], ys[0]);
+    if (N === 1) ctx.lineTo(xs[0] + 0.1, ys[0]);
+    for (let i = 1; i < N; i++) ctx.lineTo(xs[i], ys[i]);
     ctx.stroke();
   } else {
     const w = (pr) => s.size * (0.35 + 1.1 * pr);
-    if (n === 1) {
-      ctx.beginPath(); ctx.arc(p[0], p[1], w(p[2]) / 2, 0, 7); ctx.fill();
+    if (N === 1) {
+      ctx.beginPath(); ctx.arc(xs[0], ys[0], w(ps[0]) / 2, 0, 7); ctx.fill();
     } else {
-      let sx = p[0], sy = p[1];
-      for (let i = 1; i < n; i++) {
-        const cx = p[i * 3 - 3], cy = p[i * 3 - 2];
-        const last = i === n - 1;
-        const ex = last ? p[i * 3] : (cx + p[i * 3]) / 2;
-        const ey = last ? p[i * 3 + 1] : (cy + p[i * 3 + 1]) / 2;
-        ctx.lineWidth = w((p[i * 3 - 1] + p[i * 3 + 2]) / 2);
+      // trechos com espessura quase igual viram um caminho só (junções lisas)
+      let start = 0;
+      while (start < N - 1) {
+        const w0 = w(ps[start]);
+        let end = start + 1;
+        while (end < N - 1 && Math.abs(w(ps[end]) - w0) < Math.max(0.04 * w0, 0.15 / scale)) end++;
+        ctx.lineWidth = (w0 + w(ps[end])) / 2;
         ctx.beginPath();
-        ctx.moveTo(sx, sy);
-        if (i === 1) ctx.lineTo(ex, ey); else ctx.quadraticCurveTo(cx, cy, ex, ey);
+        ctx.moveTo(xs[start], ys[start]);
+        for (let i = start + 1; i <= end; i++) ctx.lineTo(xs[i], ys[i]);
         ctx.stroke();
-        sx = ex; sy = ey;
+        start = end;
       }
     }
   }
