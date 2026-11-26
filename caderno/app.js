@@ -5,7 +5,7 @@
    Coordenadas das páginas são lógicas: largura = 1000.
    ========================================================= */
 
-const APP_VERSION = 22;
+const APP_VERSION = 23;
 const PAGE_W = 1000;
 const A4_H = 1414;
 const PEN_COLORS = ['#1a1a1a', '#1e4fd8', '#d62828', '#2a9d4b', '#e67700', '#7b2cbf'];
@@ -1408,17 +1408,55 @@ function applyHistory(from, to, key) {
   const v = S.views.get(a.pageId);
   if (!v) return;
   to.push(a);
+  const other = key === 'before' ? 'after' : 'before';
+  let box;
   if (a.field === 'images') {
     v.page.images = a[key].map((o) => ({ ...o }));
     if (sel && sel.v === v) deselect();
     renderImages(v);
+    box = changedImagesBox(a[key], a[other]);
   } else {
     v.page.strokes = a[key].slice();
     renderInk(v);
+    box = changedStrokesBox(a[key], a[other]);
   }
   markDirty(v.page);
   updateUndoButtons();
-  v.el.scrollIntoView({ block: 'nearest' });
+  // não mexe na tela; só rola se o que mudou estiver totalmente fora da vista
+  revealIfHidden(v, box);
+}
+
+// caixa (em unidades da página) do que mudou entre duas versões
+function changedStrokesBox(x, y) {
+  const sx = new Set(x), sy = new Set(y);
+  const diff = [...x.filter((s) => !sy.has(s)), ...y.filter((s) => !sx.has(s))];
+  if (!diff.length) return null;
+  let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+  for (const s of diff) for (let i = 0; i < s.pts.length; i += 3) {
+    x0 = Math.min(x0, s.pts[i]); x1 = Math.max(x1, s.pts[i]);
+    y0 = Math.min(y0, s.pts[i + 1]); y1 = Math.max(y1, s.pts[i + 1]);
+  }
+  return { x0, y0, x1, y1 };
+}
+function changedImagesBox(x, y) {
+  const key = (o) => JSON.stringify([o.id, o.cx, o.cy, o.w, o.h, o.rot]);
+  const kx = new Set(x.map(key)), ky = new Set(y.map(key));
+  const diff = [...x.filter((o) => !ky.has(key(o))), ...y.filter((o) => !kx.has(key(o)))];
+  if (!diff.length) return null;
+  let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+  for (const o of diff) { x0 = Math.min(x0, o.cx - o.w / 2); x1 = Math.max(x1, o.cx + o.w / 2); y0 = Math.min(y0, o.cy - o.h / 2); y1 = Math.max(y1, o.cy + o.h / 2); }
+  return { x0, y0, x1, y1 };
+}
+function revealIfHidden(v, box) {
+  const r = v.el.getBoundingClientRect(), sr = scroller.getBoundingClientRect();
+  const k = r.width / PAGE_W;
+  const b = box ? { left: r.left + box.x0 * k, right: r.left + box.x1 * k, top: r.top + box.y0 * k, bottom: r.top + box.y1 * k }
+    : { left: r.left, right: r.right, top: r.top, bottom: r.bottom };
+  const visible = b.right > sr.left && b.left < sr.right && b.bottom > sr.top && b.top < sr.bottom;
+  if (visible) return;
+  // centraliza o que mudou na tela
+  scroller.scrollTop += (b.top + b.bottom) / 2 - (sr.top + sr.height / 2);
+  scroller.scrollLeft += (b.left + b.right) / 2 - (sr.left + sr.width / 2);
 }
 function undo() { cancelStroke(); deselectStrokes(); applyHistory(S.undo, S.redo, 'before'); }
 function redo() { cancelStroke(); deselectStrokes(); applyHistory(S.redo, S.undo, 'after'); }
